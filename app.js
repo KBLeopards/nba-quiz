@@ -77,9 +77,10 @@ const toDate = t => t ? (t.toDate ? t.toDate() : new Date(t)) : null;
 const hhmm = t => { const d = toDate(t); if (!d) return ""; const k = kst(d); return pad(k.getUTCHours()) + ":" + pad(k.getUTCMinutes()); };
 const norm = s => String(s || "").toLowerCase().replace(/[\s_\-.·°º˚'"!@#~^*()\[\]]/g, "");
 const qById = id => QUIZ.find(x => x.id === +id);
-const fmtOk = (q, a) => q.re.test(String(a || "").trim());
+const deacc = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/ø/g, "o").replace(/Ø/g, "O").replace(/ł/g, "l").replace(/Ł/g, "L").replace(/ß/g, "ss");
+const fmtOk = (q, a) => q.re.test(deacc(a).trim());
 function canon(q, v) {
-  v = String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+  v = deacc(v).trim().toLowerCase().replace(/\s+/g, " ");
   if (q.pair) return v.split(" ").sort().join(" ");
   if (q.num) return String(parseInt(v, 10));
   if (q.name) return v.replace(/['.]/g, "").replace(/-/g, " ").replace(/\s+/g, " ").replace(/ (jr|sr|ii|iii|iv)$/, "").trim();
@@ -105,7 +106,7 @@ function loadScript(src) { return new Promise((res, rej) => { if (document.query
 
 /* ---------- 상태 ---------- */
 const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "pts", rankMonth: "",
-  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), allProfiles: [], rosterUpload: null };
+  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), autoInfo: {}, autoMsg: "", members: null, memQ: "", memF: "all", allProfiles: [], rosterUpload: null };
 let unsubMe = null, unsubAns = null, unsubChat = null;
 const approved = () => !!(S.me && S.me.status === "ok");
 
@@ -346,7 +347,7 @@ function pickerHtml() {
 }
 function vAdmin() {
   if (!S.isAdmin) return "";
-  const tabs = [["dash", "현황", 0], ["quiz", "퀴즈·채점", 0], ["apps", "가입 승인", S.waitUsers.length], ["ex", "교환 처리", S.waitEx.length], ["roster", "리그 명단", 0]];
+  const tabs = [["dash", "현황", 0], ["quiz", "퀴즈·채점", 0], ["apps", "가입 승인", S.waitUsers.length], ["ex", "교환 처리", S.waitEx.length], ["members", "회원", 0], ["roster", "리그 명단", 0]];
   let h = '<div class="sect-h"><h2>운영자 화면</h2><button class="btn line sm" data-reload>새로고침</button></div><div class="atabs">' + tabs.map(t => '<button data-at="' + t[0] + '" aria-pressed="' + (S.admTab === t[0]) + '">' + t[1] + (t[2] ? '<em>' + t[2] + '</em>' : '') + '</button>').join("") + '</div>';
   const mk = monthKey(), sp = S.okEx.filter(x => toDate(x.at) && monthKey(toDate(x.at)) === mk).reduce((a, x) => a + x.won, 0);
   if (S.admTab === "dash") {
@@ -360,10 +361,11 @@ function vAdmin() {
       '<div class="sim"><div class="field"><label for="qz-d">경기 날짜</label><input id="qz-d" type="date" value="' + dateKey(nd) + '"></div><div class="field"><label for="qz-t">첫 경기 시간</label><input id="qz-t" type="time" value="08:00"></div></div>' +
       '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div>' + pickerHtml() + '<button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
     if (S.quiz) {
-      h += '<div class="sect-h"><h3>' + dLabel(S.quiz.date) + ' 채점</h3><span class="sub">마감 ' + hhmm(S.quiz.deadline) + (quizOpen() ? ' · 진행 중' : ' · 마감됨') + '</span></div><p class="sub">문항마다 따로 확정해요. 공식 박스스코어를 보고 문제의 괄호 형식 그대로 정답을 적어주세요. 공동 1위는 쉼표로 여러 개. 대소문자는 구분하지 않고, 형식이 다른 답은 자동으로 오답 처리돼요.</p>';
+      h += '<div class="sect-h"><h3>' + dLabel(S.quiz.date) + ' 채점</h3><span class="sub">마감 ' + hhmm(S.quiz.deadline) + (quizOpen() ? ' · 진행 중' : ' · 마감됨') + '</span></div><p class="sub">경기가 모두 끝나면 <b>정답 자동 채우기</b>를 누르세요. 박스스코어로 계산해서 칸을 채워줘요. 확인 후 문항마다 <b>확정</b>을 누르면 포인트가 나가요. 자동 채우기가 안 되면 문제 형식대로 직접 적으면 돼요 (공동 1위는 쉼표로).</p>' +
+        (QUIZ.every(q => S.quiz.graded && S.quiz.graded[q.id]) ? '' : '<button class="btn pri" id="auto-fill"' + (quizOpen() || S.busy ? ' disabled' : '') + '>' + (quizOpen() ? '마감 후 자동 채우기 가능' : S.busy ? '기록 불러오는 중…' : '정답 자동 채우기') + '</button>') + (S.autoMsg ? '<div class="notice ok"><p>' + esc(S.autoMsg) + '</p></div>' : '');
       QUIZ.forEach((q, i) => { const g = S.quiz.graded && S.quiz.graded[q.id], st = (S.quiz.stats || {})[q.id] || {}, v = g ? S.quiz.keys[q.id] : (S.keyDraft[q.id] || "");
         h += '<article class="card q"><div class="q-head"><span class="q-no">' + (i + 1) + '</span>' + (g ? '<span class="st ok">확정</span>' : '<span class="st wait">미확정</span>') + '<span class="q-pts">+' + q.pts + 'P</span></div><label class="q-text" for="k-' + q.id + '">' + esc(q.q) + ' <span class="fx">(예: ' + esc(q.fx) + ')</span></label>' +
-          '<input class="ans" id="k-' + q.id + '" data-keyin="' + q.id + '" value="' + esc(v) + '" placeholder="' + esc(q.fx) + (q.num ? ' (실제 기록 숫자)' : ', 공동 1위면 쉼표로') + '" autocomplete="off" spellcheck="false"' + (g ? ' disabled' : '') + '>' +
+          '<input class="ans" id="k-' + q.id + '" data-keyin="' + q.id + '" value="' + esc(v) + '" placeholder="' + esc(q.fx) + (q.num ? ' (실제 기록 숫자)' : ', 공동 1위면 쉼표로') + '" autocomplete="off" spellcheck="false"' + (g ? ' disabled' : '') + '>' + (!g && S.autoInfo[q.id] ? '<span class="hint">자동 계산: ' + esc(S.autoInfo[q.id]) + '</span>' : '') +
           (g ? '<div class="res y"><span>확정</span><div>제출 ' + (st.sub || 0) + '명 · 정답 ' + (st.right || 0) + '명' + (q.num && st.gap != null ? ' · 가장 가까운 차이 ' + st.gap : '') + '</div></div>' : '<button class="btn gold sm" data-grade="' + q.id + '"' + (v.trim() && !quizOpen() && !S.busy ? '' : ' disabled') + '>' + (quizOpen() ? '마감 후 확정할 수 있어요' : '이 문항 정답 확정 · 포인트 지급') + '</button>') + '</article>'; });
     }
   }
@@ -390,6 +392,22 @@ function vAdmin() {
   if (S.admTab === "ex") {
     h += '<form class="row" id="xfind"><div class="field" style="flex:2"><input id="xcode" placeholder="카톡으로 받은 코드 (EX-0000-XXXX)" autocomplete="off" aria-label="교환 코드"></div><button class="btn pri sm" style="min-height:50px">조회</button></form><div id="xres"></div>';
     h += '<h3>처리 대기</h3>' + (S.waitEx.length ? S.waitEx.map(exCard).join("") : '<p class="empty">대기 중인 교환이 없어요</p>');
+  }
+  if (S.admTab === "members") {
+    if (!S.members) { loadMembers(); h += '<p class="sub">불러오는 중…</p>'; }
+    else {
+      const qq = (S.memQ || "").trim().toLowerCase(), f = S.memF || "all";
+      const list = S.members.filter(u => (f === "all" || u.status === f) && (!qq || [u.nick, u.name, u.league, u.email, u.phone].join(" ").toLowerCase().includes(qq)))
+        .sort((a, b) => (toDate(b.createdAt) || 0) - (toDate(a.createdAt) || 0));
+      const cnt = k => S.members.filter(u => k === "all" || u.status === k).length;
+      h += '<div class="tiles"><div class="tile"><span>전체</span><b>' + cnt("all") + '</b></div><div class="tile"><span>승인</span><b>' + cnt("ok") + '</b></div><div class="tile"><span>대기</span><b>' + cnt("wait") + '</b></div><div class="tile"><span>보유 포인트 합계</span><b>' + fmt(S.members.reduce((t, u) => t + (u.points || 0), 0)) + '</b><span>P · 1P = 1원</span></div></div>';
+      h += '<div class="field"><input id="mem-q" value="' + esc(S.memQ || "") + '" placeholder="닉네임·이름·리그·연락처 검색" autocomplete="off" aria-label="회원 검색"></div><div class="atabs">' +
+        [["all", "전체"], ["ok", "승인"], ["wait", "대기"], ["no", "반려"]].map(t => '<button data-mf="' + t[0] + '" aria-pressed="' + (f === t[0]) + '">' + t[1] + ' ' + cnt(t[0]) + '</button>').join("") + '</div>';
+      h += list.length ? '<section class="card" style="padding:4px 14px"><div class="hist">' + list.map(u => { const rev = S.revealed[u.id];
+        return '<div class="h mem"><div style="min-width:0"><b>' + esc(u.nick) + '</b> <span class="st ' + ({ ok: "ok", wait: "wait", no: "no" })[u.status] + '">' + ({ ok: "승인", wait: "대기", no: "반려" })[u.status] + '</span>' +
+          '<small>' + esc(u.type) + ' · ' + esc(u.league) + (u.type === "지인" ? ' · 초대 ' + esc(u.invNick) : '') + '</small><small>' + esc(u.name) + ' · <button class="mask" data-rev="' + u.id + '">' + esc(rev ? u.phone : String(u.phone).replace(/(\d{3})-(\d{2})\d{1,2}-(\d{2})\d{2}/, "$1-$2**-$3**")) + '</button> · 가입 ' + dLabel(dateKey(toDate(u.createdAt) || new Date())) + '</small><small style="word-break:break-all">' + esc(u.email) + '</small></div>' +
+          '<b class="num">' + fmt(u.points) + 'P</b></div>'; }).join("") + '</div></section>' : '<p class="empty">조건에 맞는 회원이 없어요</p>';
+    }
   }
   if (S.admTab === "roster") {
     const lg = S.rosterSel, up = S.rosterUpload;
@@ -474,7 +492,7 @@ async function openQuiz() {
   const games = document.getElementById("qz-g").value.split("\n").map(s => s.trim().split(/\s+/)).filter(p => p.length >= 2).map(p => ({ a: p[0].toUpperCase(), h: p[1].toUpperCase(), t: p[2] || "" }));
   if (S.pick.length !== 5) { toast("문제 5개를 골라주세요"); return; }
   S.busy = true; render(true);
-  try { await setDoc(doc(db, "quizzes", d), { date: d, deadline, games, qs: S.pick.slice(), keys: {}, graded: {}, stats: {} }); toast(dLabel(d) + " 퀴즈를 열었어요"); }
+  try { await setDoc(doc(db, "quizzes", d), { date: d, deadline, games, qs: S.pick.slice(), keys: {}, graded: {}, stats: {} }); toast(dLabel(d) + " 퀴즈를 열었어요"); S.autoInfo = {}; S.autoMsg = ""; S.keyDraft = {}; }
   catch (e) { toast("실패: " + (e.code || e.message)); }
   S.busy = false; render(true);
 }
@@ -501,7 +519,7 @@ async function grade(id) {
     if (QUIZ.every(x => graded[x.id])) Object.keys(resAll).forEach(uid => { if (QUIZ.every(x => resAll[uid][x.id] === true)) {
       ops.push(b => b.update(doc(db, "users", uid), { points: increment(RULE.bonus) })); ops.push(b => b.set(doc(collection(db, "ledger")), { uid, p: RULE.bonus, t: label + " 전문항 정답 보너스", at: serverTimestamp() })); bump(uid, RULE.bonus, 0, 0); } });
     ops.push(b => b.update(doc(db, "quizzes", Q.date), { ["keys." + id]: key, ["graded." + id]: true, ["stats." + id]: q.num ? { sub: nSub, right: nRight, gap: best === Infinity ? null : best } : { sub: nSub, right: nRight } }));
-    await commitOps(ops); delete S.keyDraft[id]; toast(id + "번 확정 · 정답 " + nRight + "명 / 제출 " + nSub + "명");
+    await commitOps(ops); delete S.keyDraft[id]; delete S.autoInfo[id]; toast(id + "번 확정 · 정답 " + nRight + "명 / 제출 " + nSub + "명");
   } catch (e) { toast("채점 실패: " + (e.code || e.message)); }
   S.busy = false; S.profiles = null; render(true);
 }
@@ -548,6 +566,67 @@ async function parseRosterFile(file) {
   } catch (e) { toast("엑셀을 읽지 못했어요: " + (e.message || e)); }
 }
 
+async function loadMembers() {
+  try { const u = await getDocs(collection(db, "users")); S.members = u.docs.map(d => ({ id: d.id, ...d.data() })); }
+  catch (e) { S.members = []; toast("회원 목록을 못 불러왔어요: " + (e.code || e.message)); }
+  render(true);
+}
+const ESPN_AB = { GS: "GSW", NY: "NYK", SA: "SAS", NO: "NOP", UTAH: "UTA", WSH: "WAS", PHO: "PHX", BRK: "BKN" };
+const tAb = a => ESPN_AB[a] || a;
+async function getJson(url) { const r = await fetch(url); if (!r.ok) throw new Error("기록 사이트 응답 " + r.status); return r.json(); }
+async function autoFill() {
+  const Q = S.quiz; if (!Q) return;
+  const [y, m, d] = Q.date.split("-").map(Number), us = new Date(Date.UTC(y, m - 1, d) - DAY);
+  const ymd = us.getUTCFullYear() + pad(us.getUTCMonth() + 1) + pad(us.getUTCDate());
+  S.busy = true; S.autoMsg = ""; render(true);
+  try {
+    const sb = await getJson("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=" + ymd);
+    const want = (Q.games || []).map(g => [g.a, g.h].sort().join(" ")), games = []; let notDone = 0;
+    (sb.events || []).forEach(ev => { const comp = ev.competitions[0], teams = comp.competitors.map(c => ({ ab: tAb(c.team.abbreviation), score: +c.score }));
+      if (want.length && !want.includes(teams.map(t => t.ab).sort().join(" "))) return;
+      if (!(comp.status && comp.status.type && comp.status.type.completed)) { notDone++; return; }
+      games.push({ id: ev.id, teams }); });
+    if (notDone) throw new Error("아직 안 끝난 경기가 " + notDone + "개 있어요");
+    if (!games.length) throw new Error("이 날짜 경기 기록을 찾지 못했어요");
+    if (want.length && games.length < want.length) throw new Error("퀴즈 경기 " + want.length + "개 중 " + games.length + "개만 찾았어요");
+    const players = [], ts = {};
+    for (const g of games) {
+      const sm = await getJson("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=" + g.id);
+      ((sm.boxscore && sm.boxscore.players) || []).forEach(tp => {
+        const ab = tAb(tp.team.abbreviation), st = tp.statistics[0], L = (st.labels || []).map(x => String(x).toUpperCase());
+        ts[ab] = ts[ab] || { tpm: 0, reb: 0, ast: 0, tov: 0 };
+        (st.athletes || []).forEach(a => { if (a.didNotPlay || !a.stats || !a.stats.length) return;
+          const v = n => { const i = L.indexOf(n); return i < 0 ? "0" : a.stats[i]; }, num = x => parseFloat(String(x).split("-")[0]) || 0;
+          const p = { name: deacc(a.athlete.displayName), team: ab, starter: !!a.starter, min: num(v("MIN")), pts: num(v("PTS")), ast: num(v("AST")), reb: num(v("REB")), oreb: num(v("OREB")),
+            stl: num(v("STL")), blk: num(v("BLK")), tov: num(v("TO")), fgm: num(v("FG")), ftm: num(v("FT")), tpm: num(v("3PT")), pm: parseFloat(String(v("+/-")).replace("+", "")) || 0 };
+          players.push(p); const t = ts[ab]; t.tpm += p.tpm; t.reb += p.reb; t.ast += p.ast; t.tov += p.tov; });
+      });
+    }
+    if (!players.length) throw new Error("선수 기록을 읽지 못했어요");
+    const top = (arr, f, dir) => { let b = null; arr.forEach(x => { const v = f(x); if (b === null || v * dir > b * dir) b = v; }); return { v: b, xs: arr.filter(x => f(x) === b) }; };
+    const uniq = a => [...new Set(a)];
+    const P = (f, unit, flt) => { const r = top(flt ? players.filter(flt) : players, f, 1); return { k: uniq(r.xs.map(x => x.name)).join(", "), i: r.v + unit + (r.xs.length > 1 ? " · 공동 " + r.xs.length + "명" : "") }; };
+    const TM = []; games.forEach(g => g.teams.forEach(t => TM.push(Object.assign({ ab: t.ab, score: t.score }, ts[t.ab] || {}))));
+    const T = (f, unit, dir) => { const r = top(TM, f, dir || 1); return { k: uniq(r.xs.map(x => x.ab)).join(", "), i: r.v + unit + (r.xs.length > 1 ? " · 공동 " + r.xs.length + "팀" : "") }; };
+    const GM = games.map(g => { const [a, b] = g.teams; return { pair: a.ab + " " + b.ab, total: a.score + b.score, margin: Math.abs(a.score - b.score), win: a.score > b.score ? a.ab : b.ab }; });
+    const Gx = (f, unit, dir) => { const r = top(GM, f, dir || 1); return { k: r.xs.map(x => x.pair).join(", "), i: r.v + unit + (r.xs.length > 1 ? " · 공동 " + r.xs.length + "경기" : "") }; };
+    const N = (r) => ({ k: String(r.v), i: "실제 기록 " + r.v });
+    const C = {
+      pts: () => P(x => x.pts, "점"), ast: () => P(x => x.ast, "개"), reb: () => P(x => x.reb, "개"), tpm: () => P(x => x.tpm, "개"), stl: () => P(x => x.stl, "개"), blk: () => P(x => x.blk, "개"),
+      oreb: () => P(x => x.oreb, "개"), fgm: () => P(x => x.fgm, "개"), min: () => P(x => x.min, "분"), ftm: () => P(x => x.ftm, "개"), tov: () => P(x => x.tov, "개"), pm: () => P(x => x.pm, ""),
+      bench: () => P(x => x.pts, "점", x => !x.starter),
+      thi: () => T(x => x.score, "점"), tlo: () => T(x => x.score, "점", -1), t3: () => T(x => x.tpm, "개"), treb: () => T(x => x.reb, "개"), tast: () => T(x => x.ast, "개"), ttov: () => T(x => x.tov, "개"),
+      bigw: () => { const r = top(GM, x => x.margin, 1); return { k: uniq(r.xs.map(x => x.win)).join(", "), i: r.v + "점 차" }; },
+      ghi: () => Gx(x => x.total, "점"), glo: () => Gx(x => x.total, "점", -1), gcl: () => Gx(x => x.margin, "점 차", -1),
+      npts: () => N(top(players, x => x.pts, 1)), nast: () => N(top(players, x => x.ast, 1)), nreb: () => N(top(players, x => x.reb, 1)),
+      nthi: () => N(top(TM, x => x.score, 1)), ntlo: () => N(top(TM, x => x.score, -1)), nmar: () => N(top(GM, x => x.margin, 1)), ngame: () => N(top(GM, x => x.total, 1)) };
+    let n = 0;
+    QUIZ.forEach(q => { if (Q.graded && Q.graded[q.id]) return; const f = C[q.key]; if (!f) return; const r = f(); S.keyDraft[q.id] = r.k; S.autoInfo[q.id] = r.i; n++; });
+    S.autoMsg = games.length + "경기 · 선수 " + players.length + "명 기록으로 " + n + "문항을 채웠어요. 확인 후 확정을 눌러주세요.";
+  } catch (e) { toast("자동 채우기 실패: " + (e.message || e) + " · 직접 입력해 주세요"); }
+  S.busy = false; render(true);
+}
+
 /* ---------- 시트·토스트 ---------- */
 function sheet(html) { document.getElementById("layer").innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>' + html + '</div></div>'; }
 function closeSheet() { document.getElementById("layer").innerHTML = ""; }
@@ -574,11 +653,13 @@ document.addEventListener("click", ev => {
   if (b.id === "copy-code") { copy(b.dataset.c); return; }
   if (b.dataset.jt) { J.type = b.dataset.jt; J.err = {}; render(true); return; }
   if (b.dataset.at) { S.admTab = b.dataset.at; render(); return; }
-  if (b.hasAttribute("data-reload")) { loadAdmin(); return; }
+  if (b.hasAttribute("data-reload")) { S.members = null; loadAdmin(); return; }
   if (b.dataset.rev) { S.revealed[b.dataset.rev] = !S.revealed[b.dataset.rev]; render(true); return; }
   if (b.dataset.app) { b.disabled = true; approve(b.dataset.app, b.dataset.st); return; }
   if (b.dataset.grade) { grade(b.dataset.grade); return; }
   if (b.id === "qz-open") { openQuiz(); return; }
+  if (b.id === "auto-fill") { autoFill(); return; }
+  if (b.dataset.mf) { S.memF = b.dataset.mf; render(true); return; }
   if (b.dataset.pick) { const k = b.dataset.pick, i = S.pick.indexOf(k); if (i >= 0) S.pick.splice(i, 1); else if (S.pick.length < 5) S.pick.push(k); else { toast("5문제까지 고를 수 있어요. 하나를 먼저 빼주세요"); return; }
     const keep = ["qz-d", "qz-t", "qz-g"].map(id => { const e = document.getElementById(id); return e ? e.value : ""; }); render(true); ["qz-d", "qz-t", "qz-g"].forEach((id, n) => { const e = document.getElementById(id); if (e) e.value = keep[n]; }); return; }
   if (b.dataset.x) { b.disabled = true; settleEx(b.dataset.x, b.dataset.xs); return; }
@@ -596,6 +677,7 @@ document.addEventListener("input", ev => {
   if (t.dataset.keyin) { const k = t.dataset.keyin; S.keyDraft[k] = t.value; const gb = document.querySelector('[data-grade="' + k + '"]'); if (gb && !quizOpen()) gb.disabled = !t.value.trim(); }
   if (t.id === "j-phone") { const d = t.value.replace(/\D/g, "").slice(0, 11); t.value = d.length > 7 ? d.slice(0, 3) + "-" + d.slice(3, 7) + "-" + d.slice(7) : d.length > 3 ? d.slice(0, 3) + "-" + d.slice(3) : d; }
   if (t.id === "s-n" || t.id === "s-a") simCalc();
+  if (t.id === "mem-q") { S.memQ = t.value; render(true); }
 });
 document.addEventListener("submit", ev => {
   ev.preventDefault();
