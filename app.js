@@ -124,9 +124,19 @@ onAuthStateChanged(auth, u => {
 onSnapshot(query(collection(db, "quizzes"), orderBy("date", "desc"), limit(2)), s => {
   const list = s.docs.map(d => d.data()); S.quiz = list[0] || null; S.prev = list[1] || null; QUIZ = buildQuiz(S.quiz); watchAnswers(); render(true);
 });
+let unsubMeta = null;
+const lrKey = (d, q) => "nq-lr-" + d + "_" + q;
+function getLr(d, q) { try { return +(localStorage.getItem(lrKey(d, q)) || 0); } catch (e) { return 0; } }
+function setLr(d, q, n) { try { localStorage.setItem(lrKey(d, q), String(n)); } catch (e) {} }
+const msgCount = q => +((S.meta || {})[q] || 0);
+function unread(q) { if (!S.quiz || !canRoomIn({ ans: S.ans }, q)) return 0; return Math.max(0, msgCount(q) - getLr(S.quiz.date, q)); }
+function anyUnread() { return QUIZ.some(q => unread(q.id) > 0); }
+const badge = n => n > 0 ? '<i class="badge-n">' + (n > 99 ? "99+" : n) + '</i>' : '';
 function watchAnswers() {
   if (unsubAns) { unsubAns(); unsubAns = null; } S.ans = null;
+  if (unsubMeta) { unsubMeta(); unsubMeta = null; } S.meta = {};
   if (!S.user || !S.quiz) return;
+  unsubMeta = onSnapshot(doc(db, "chatmeta", S.quiz.date), s => { S.meta = (s.exists() && s.data().c) || {}; render(true); }, () => {});
   unsubAns = onSnapshot(doc(db, "answers", S.quiz.date + "_" + S.user.uid), s => { S.ans = s.exists() ? s.data() : null; render(true); }, () => {});
 }
 function watchChat() {
@@ -186,7 +196,7 @@ function renderTabs() {
   const ts = tabsFor(), cur = S.tab === "hist" ? "home" : S.tab; if (!ts.some(t => t[0] === cur)) S.tab = ts[0][0];
   const unsub = S.quiz && quizOpen() && approved() && QUIZ.some(q => !(S.ans && S.ans.sub && S.ans.sub[q.id]));
   document.getElementById("tabs").innerHTML = ts.map(t => {
-    const dot = (t[0] === "home" && unsub) || (t[0] === "admin" && (S.waitUsers.length + S.waitEx.length) > 0);
+    const dot = (t[0] === "home" && unsub) || (t[0] === "chat" && anyUnread()) || (t[0] === "admin" && (S.waitUsers.length + S.waitEx.length) > 0);
     return '<button data-tab="' + t[0] + '"' + ((S.tab === "hist" ? "home" : S.tab) === t[0] ? ' aria-current="page"' : '') + '>' + ICON[t[0]] + '<span>' + t[1] + '</span>' + (dot ? '<i class="dot"></i>' : '') + '</button>'; }).join("");
   const hp = document.getElementById("hdr-pts");
   if (approved()) { hp.hidden = false; hp.innerHTML = '<span class="num">' + fmt(S.me.points) + '</span> P'; hp.dataset.go = "wallet"; }
@@ -233,7 +243,7 @@ function vHome() {
     const room = S.isAdmin || (approved() && subd);
     h += '<article class="card q"><div class="q-head"><span class="q-no">' + (i + 1) + '</span><span class="q-pts">+' + q.pts + 'P</span></div><label class="q-text" for="a-' + q.id + '">' + esc(q.q) + ' <span class="fx">(예: ' + esc(q.fx) + ')</span></label>' +
       '<input class="ans" id="a-' + q.id + '" data-ans="' + q.id + '" value="' + esc(sel) + '" placeholder="' + esc(q.fx) + '" maxlength="40" autocomplete="off" spellcheck="false" enterkeyhint="done"' + (can && !graded ? '' : ' disabled') + '><span class="hint" id="h-' + q.id + '">' + hintHtml(q, sel, subd && can) + '</span>' + foot +
-      '<button class="room-link' + (room ? '' : ' locked') + '" data-room="' + q.id + '"' + (room ? '' : ' disabled') + '>' + ICON.chat + '<span>' + (i + 1) + '번 채팅방</span><em>' + (room ? '입장' : '제출 후 입장') + '</em></button></article>';
+      '<button class="room-link' + (room ? '' : ' locked') + '" data-room="' + q.id + '"' + (room ? '' : ' disabled') + '>' + ICON.chat + '<span>' + (i + 1) + '번 채팅방 · 대화 ' + msgCount(q.id) + '</span>' + badge(unread(q.id)) + '<em>' + (room ? '입장' : '제출 후 입장') + '</em></button></article>';
   });
   if (S.prev && S.prev.graded && Object.keys(S.prev.graded).length) {
     h += '<section class="card"><div class="sect-h"><h3>지난 퀴즈 결과</h3><span class="sub">' + dLabel(S.prev.date) + '</span></div><div class="tbl-wrap"><table><thead><tr><th>문항</th><th>정답</th><th class="r">정답률</th></tr></thead><tbody>' +
@@ -283,7 +293,7 @@ function vChat() {
   if (!S.quiz) return '<h2>문항별 채팅방</h2><p class="empty">퀴즈가 열리면 채팅방도 열려요</p><button class="btn line" data-gohist>지난 퀴즈 채팅방 보기</button>';
   let h = '<div class="sect-h"><h2>문항별 채팅방</h2><span class="sub">' + dLabel(S.quiz.date) + '</span></div><p class="sub">채팅방은 문항마다 따로 있어요. 그 문항을 제출해야 들어갈 수 있어서, 아직 안 낸 사람에게 정답이 새지 않아요.</p>';
   QUIZ.forEach((q, i) => { const ok = canRoomIn({ ans: S.ans }, q.id);
-    h += '<button class="card room' + (ok ? '' : ' locked') + '" data-room="' + q.id + '"' + (ok ? '' : ' disabled') + '><span class="q-no">' + (i + 1) + '</span><span class="rinfo"><b>' + esc(q.q) + '</b><small>' + (ok ? '들어가서 이야기 나누기' : '이 문항을 제출하면 열려요') + '</small></span><em>' + (ok ? '입장' : '잠김') + '</em></button>'; });
+    h += '<button class="card room' + (ok ? '' : ' locked') + '" data-room="' + q.id + '"' + (ok ? '' : ' disabled') + '><span class="q-no">' + (i + 1) + '</span><span class="rinfo"><b>' + esc(q.q) + '</b><small>대화 ' + msgCount(q.id) + '개 · ' + (ok ? '들어가서 이야기 나누기' : '이 문항을 제출하면 열려요') + '</small></span>' + badge(unread(q.id)) + '<em>' + (ok ? '입장' : '잠김') + '</em></button>'; });
   h += '<button class="btn line" data-gohist>지난 퀴즈 채팅방 보기</button>';
   return h + (approved() || S.isAdmin ? '' : statusBanner());
 }
@@ -512,7 +522,8 @@ async function submitAnswer(id) {
 }
 async function sendChat(m) {
   try { await setDoc(doc(collection(db, "chats", S.quiz.date + "_" + S.room, "msgs")), { uid: S.user.uid, nick: S.isAdmin && !approved() ? "운영자" : S.me.nick, league: S.isAdmin && !approved() ? "운영" : S.me.league, m, at: serverTimestamp() }); }
-  catch (e) { toast("전송 실패: " + (e.code || e.message)); }
+  catch (e) { toast("전송 실패: " + (e.code || e.message)); return; }
+  try { await setDoc(doc(db, "chatmeta", S.quiz.date), { c: { [S.room]: increment(1) } }, { merge: true }); } catch (e) { console.warn("chatmeta", e.code); }
 }
 async function joinSubmit() {
   const g = id => { const e = document.getElementById(id); return e ? e.value.trim() : ""; }, err = {};
@@ -782,6 +793,7 @@ function render(keepScroll) {
   if (S.tab === "chat" && S.room) window.scrollTo(0, document.body.scrollHeight); else if (keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
 }
 function doRender() {
+  if (S.tab === "chat" && S.room && S.quiz && !roomCtx().past && canRoom(S.room)) setLr(S.quiz.date, S.room, msgCount(S.room));
   const v = { hist: vHist, home: vHome, rank: vRank, chat: vChat, wallet: vWallet, notice: vNotice, join: vJoin, admin: vAdmin }[S.tab] || vHome;
   document.getElementById("view").innerHTML = v() + composer();
   if (S.tab === "admin" && S.admTab === "dash") simCalc();
