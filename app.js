@@ -427,7 +427,7 @@ async function grade(id) {
     const [as, ps] = await Promise.all([getDocs(query(collection(db, "answers"), where("date", "==", Q.date))), getDocs(collection(db, "profiles"))]);
     const prof = {}; ps.docs.forEach(d => prof[d.id] = d.data());
     const mk = monthKey(), label = dLabel(Q.date), ops = []; let nSub = 0, nRight = 0; const resAll = {};
-    const mk2 = mKey(mk);
+    const mk2 = mKey(Q.date.slice(0, 7));
     const bump = (uid, pts, right, ans) => { if (!prof[uid]) return; ops.push(b => b.update(doc(db, "profiles", uid), { ["m." + mk2 + ".p"]: increment(pts), ["m." + mk2 + ".r"]: increment(right), ["m." + mk2 + ".a"]: increment(ans) })); };
     as.docs.forEach(d => { const a = d.data(); resAll[a.uid] = Object.assign({}, a.res || {});
       if (!(a.sub && a.sub[id])) return; nSub++; const ok = isRight(id, a.a && a.a[id], key); if (ok) nRight++; resAll[a.uid][id] = ok;
