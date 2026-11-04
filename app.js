@@ -106,7 +106,7 @@ function loadScript(src) { return new Promise((res, rej) => { if (document.query
 
 /* ---------- 상태 ---------- */
 const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "pts", rankMonth: "",
-  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), autoInfo: {}, autoMsg: "", members: null, memQ: "", memF: "all", hist: null, histSel: null, histQuiz: null, histAns: null, roomDate: null, allProfiles: [], rosterUpload: null };
+  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), autoInfo: {}, autoMsg: "", members: null, memQ: "", memF: "all", ansList: null, ansListDate: null, ansDate: null, hist: null, histSel: null, histQuiz: null, histAns: null, roomDate: null, allProfiles: [], rosterUpload: null };
 let unsubMe = null, unsubAns = null, unsubChat = null;
 const approved = () => !!(S.me && S.me.status === "ok");
 
@@ -386,7 +386,7 @@ function pickerHtml() {
 }
 function vAdmin() {
   if (!S.isAdmin) return "";
-  const tabs = [["dash", "현황", 0], ["quiz", "퀴즈·채점", 0], ["apps", "가입 승인", S.waitUsers.length], ["ex", "교환 처리", S.waitEx.length], ["members", "회원", 0], ["roster", "리그 명단", 0]];
+  const tabs = [["dash", "현황", 0], ["quiz", "퀴즈·채점", 0], ["answers", "답안", 0], ["apps", "가입 승인", S.waitUsers.length], ["ex", "교환 처리", S.waitEx.length], ["members", "회원", 0], ["roster", "리그 명단", 0]];
   let h = '<div class="sect-h"><h2>운영자 화면</h2><button class="btn line sm" data-reload>새로고침</button></div><div class="atabs">' + tabs.map(t => '<button data-at="' + t[0] + '" aria-pressed="' + (S.admTab === t[0]) + '">' + t[1] + (t[2] ? '<em>' + t[2] + '</em>' : '') + '</button>').join("") + '</div>';
   const mk = monthKey(), sp = S.okEx.filter(x => toDate(x.at) && monthKey(toDate(x.at)) === mk).reduce((a, x) => a + x.won, 0);
   if (S.admTab === "dash") {
@@ -431,6 +431,27 @@ function vAdmin() {
   if (S.admTab === "ex") {
     h += '<form class="row" id="xfind"><div class="field" style="flex:2"><input id="xcode" placeholder="카톡으로 받은 코드 (EX-0000-XXXX)" autocomplete="off" aria-label="교환 코드"></div><button class="btn pri sm" style="min-height:50px">조회</button></form><div id="xres"></div>';
     h += '<h3>처리 대기</h3>' + (S.waitEx.length ? S.waitEx.map(exCard).join("") : '<p class="empty">대기 중인 교환이 없어요</p>');
+  }
+  if (S.admTab === "answers") {
+    const d = S.ansDate || (S.quiz && S.quiz.date);
+    if (!d) h += '<p class="empty">열린 퀴즈가 없어요</p>';
+    else if (!S.ansList || S.ansListDate !== d) { loadAnswers(d); h += '<p class="sub">불러오는 중…</p>'; }
+    else {
+      const Qd = (S.quiz && S.quiz.date === d) ? S.quiz : ((S.hist || []).find(x => x.date === d) || S.quiz), qs = buildQuiz(Qd);
+      const nickOf = uid => { const p = (S.allProfiles || []).find(x => x.id === uid) || (S.members || []).find(x => x.id === uid); return p ? p.nick : uid.slice(0, 6); };
+      const list = S.ansList.slice().sort((a, b) => nickOf(a.uid).localeCompare(nickOf(b.uid), "ko"));
+      const full = list.filter(a => qs.every(q => a.sub && a.sub[q.id])).length;
+      h += '<div class="sect-h"><h3>' + dLabel(d) + ' 답안</h3><button class="btn line sm" data-ans-reload>새로고침</button></div>';
+      h += '<div class="tiles"><div class="tile"><span>제출한 사람</span><b>' + list.length + '</b></div><div class="tile"><span>5문항 모두 제출</span><b>' + full + '</b></div></div>';
+      h += '<section class="card"><h3>문항별 답 분포</h3>' + qs.map((q, i) => {
+        const cnt = {}; list.forEach(a => { if (!(a.sub && a.sub[q.id])) return; const v = String(a.a[q.id] || "").trim(), k = fmtOk(q, v) ? canon(q, v) : "__bad"; cnt[k] = cnt[k] || { label: v, n: 0 }; cnt[k].n++; });
+        const rows = Object.keys(cnt).map(k => [k === "__bad" ? "형식 틀림" : cnt[k].label, cnt[k].n]).sort((a, b) => b[1] - a[1]), tot = rows.reduce((t, r) => t + r[1], 0);
+        return '<div style="margin-top:12px"><b>' + (i + 1) + '. ' + esc(q.q) + '</b> <span class="sub" style="display:inline">· ' + tot + '명</span>' + (rows.length ? '<div class="hist">' + rows.map(r => '<div class="h"><span>' + esc(r[0]) + '</span><b class="num">' + r[1] + '명</b></div>').join("") + '</div>' : '<p class="sub">아직 제출 없음</p>') + '</div>'; }).join("") + '</section>';
+      h += list.length ? '<section class="card" style="padding:4px 14px"><div class="hist">' + list.map(a => {
+        const g = Qd && Qd.graded;
+        return '<div class="h mem"><div style="min-width:0;width:100%"><b>' + esc(nickOf(a.uid)) + '</b>' + qs.map((q, i) => { const has = a.sub && a.sub[q.id], ok = a.res && a.res[q.id], done = g && g[q.id];
+          return '<small>' + (i + 1) + '. ' + (has ? esc(a.a[q.id]) + ' <span class="sub" style="display:inline">' + hhmm(a.sub[q.id]) + '</span>' + (done ? (ok ? ' ✓' : ' ✕') : '') : '<span class="sub" style="display:inline">미제출</span>') + '</small>'; }).join("") + '</div></div>'; }).join("") + '</div></section>' : '<p class="empty">아직 제출한 사람이 없어요</p>';
+    }
   }
   if (S.admTab === "members") {
     if (!S.members) { loadMembers(); h += '<p class="sub">불러오는 중…</p>'; }
@@ -669,6 +690,13 @@ async function autoFill() {
   S.busy = false; render(true);
 }
 
+async function loadAnswers(d) {
+  try { const s = await getDocs(query(collection(db, "answers"), where("date", "==", d))); S.ansList = s.docs.map(x => x.data()); S.ansListDate = d;
+    if (!S.members) { const u = await getDocs(collection(db, "users")); S.members = u.docs.map(x => ({ id: x.id, ...x.data() })); } }
+  catch (e) { S.ansList = []; S.ansListDate = d; toast("답안을 못 불러왔어요: " + (e.code || e.message)); }
+  render(true);
+}
+
 /* ---------- 시트·토스트 ---------- */
 function sheet(html) { document.getElementById("layer").innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>' + html + '</div></div>'; }
 function closeSheet() { document.getElementById("layer").innerHTML = ""; }
@@ -699,13 +727,14 @@ document.addEventListener("click", ev => {
   if (b.id === "do-ex") { b.disabled = true; doExchange(b.dataset.t); return; }
   if (b.id === "copy-code") { copy(b.dataset.c); return; }
   if (b.dataset.jt) { J.type = b.dataset.jt; J.err = {}; render(true); return; }
-  if (b.dataset.at) { S.admTab = b.dataset.at; render(); return; }
+  if (b.dataset.at) { S.admTab = b.dataset.at; if (S.admTab === "answers") S.ansList = null; render(); return; }
   if (b.hasAttribute("data-reload")) { S.members = null; loadAdmin(); return; }
   if (b.dataset.rev) { S.revealed[b.dataset.rev] = !S.revealed[b.dataset.rev]; render(true); return; }
   if (b.dataset.app) { b.disabled = true; approve(b.dataset.app, b.dataset.st); return; }
   if (b.dataset.grade) { grade(b.dataset.grade); return; }
   if (b.id === "qz-open") { openQuiz(); return; }
   if (b.id === "auto-fill") { autoFill(); return; }
+  if (b.hasAttribute("data-ans-reload")) { S.ansList = null; render(true); return; }
   if (b.dataset.mf) { S.memF = b.dataset.mf; render(true); return; }
   if (b.dataset.pick) { const k = b.dataset.pick, i = S.pick.indexOf(k); if (i >= 0) S.pick.splice(i, 1); else if (S.pick.length < 5) S.pick.push(k); else { toast("5문제까지 고를 수 있어요. 하나를 먼저 빼주세요"); return; }
     const keep = ["qz-d", "qz-t", "qz-g"].map(id => { const e = document.getElementById(id); return e ? e.value : ""; }); render(true); ["qz-d", "qz-t", "qz-g"].forEach((id, n) => { const e = document.getElementById(id); if (e) e.value = keep[n]; }); return; }
