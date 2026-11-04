@@ -243,7 +243,7 @@ function vHome() {
     const room = S.isAdmin || (approved() && subd);
     h += '<article class="card q"><div class="q-head"><span class="q-no">' + (i + 1) + '</span><span class="q-pts">+' + q.pts + 'P</span></div><label class="q-text" for="a-' + q.id + '">' + esc(q.q) + ' <span class="fx">(예: ' + esc(q.fx) + ')</span></label>' +
       '<input class="ans" id="a-' + q.id + '" data-ans="' + q.id + '" value="' + esc(sel) + '" placeholder="' + esc(q.fx) + '" maxlength="40" autocomplete="off" spellcheck="false" enterkeyhint="done"' + (can && !graded ? '' : ' disabled') + '><span class="hint" id="h-' + q.id + '">' + hintHtml(q, sel, subd && can) + '</span>' + foot +
-      '<button class="room-link' + (room ? '' : ' locked') + '" data-room="' + q.id + '"' + (room ? '' : ' disabled') + '>' + ICON.chat + '<span>' + (i + 1) + '번 채팅방 · 대화 ' + msgCount(q.id) + '</span>' + badge(unread(q.id)) + '<em>' + (room ? '입장' : '제출 후 입장') + '</em></button></article>';
+      '<button class="room-link' + (room ? '' : ' locked') + '" data-room="' + q.id + '"' + (room ? '' : ' disabled') + '>' + ICON.chat + '<span>' + (i + 1) + '번 채팅방' + (room ? ' · 대화 ' + msgCount(q.id) : '') + '</span>' + badge(unread(q.id)) + '<em>' + (room ? '입장' : '제출 후 입장') + '</em></button></article>';
   });
   if (S.prev && S.prev.graded && Object.keys(S.prev.graded).length) {
     h += '<section class="card"><div class="sect-h"><h3>지난 퀴즈 결과</h3><span class="sub">' + dLabel(S.prev.date) + '</span></div><div class="tbl-wrap"><table><thead><tr><th>문항</th><th>정답</th><th class="r">정답률</th></tr></thead><tbody>' +
@@ -293,7 +293,7 @@ function vChat() {
   if (!S.quiz) return '<h2>문항별 채팅방</h2><p class="empty">퀴즈가 열리면 채팅방도 열려요</p><button class="btn line" data-gohist>지난 퀴즈 채팅방 보기</button>';
   let h = '<div class="sect-h"><h2>문항별 채팅방</h2><span class="sub">' + dLabel(S.quiz.date) + '</span></div><p class="sub">채팅방은 문항마다 따로 있어요. 그 문항을 제출해야 들어갈 수 있어서, 아직 안 낸 사람에게 정답이 새지 않아요.</p>';
   QUIZ.forEach((q, i) => { const ok = canRoomIn({ ans: S.ans }, q.id);
-    h += '<button class="card room' + (ok ? '' : ' locked') + '" data-room="' + q.id + '"' + (ok ? '' : ' disabled') + '><span class="q-no">' + (i + 1) + '</span><span class="rinfo"><b>' + esc(q.q) + '</b><small>대화 ' + msgCount(q.id) + '개 · ' + (ok ? '들어가서 이야기 나누기' : '이 문항을 제출하면 열려요') + '</small></span>' + badge(unread(q.id)) + '<em>' + (ok ? '입장' : '잠김') + '</em></button>'; });
+    h += '<button class="card room' + (ok ? '' : ' locked') + '" data-room="' + q.id + '"' + (ok ? '' : ' disabled') + '><span class="q-no">' + (i + 1) + '</span><span class="rinfo"><b>' + esc(q.q) + '</b><small>' + (ok ? '대화 ' + msgCount(q.id) + '개 · 들어가서 이야기 나누기' : '이 문항을 제출하면 열려요') + '</small></span>' + badge(unread(q.id)) + '<em>' + (ok ? '입장' : '잠김') + '</em></button>'; });
   h += '<button class="btn line" data-gohist>지난 퀴즈 채팅방 보기</button>';
   return h + (approved() || S.isAdmin ? '' : statusBanner());
 }
