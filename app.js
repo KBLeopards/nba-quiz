@@ -7,7 +7,7 @@ import { firebaseConfig } from "./firebase-config.js";
 const ADMINS = ["kyubum1231@gmail.com"];
 const KAKAO = "https://open.kakao.com/o/sMAP4AVi";
 const LEAGUES = ["미친인생","KB Keeper League 26-27","2026-2027 NBA Mania V1","2026-2027 NBA Mania V2","KB League 26-27","Winners NBA 26-27","M NBA FANTASY","2026-2027 NBA H2H League","KB Mini League","KB Concept League","하루에 10분씩 하는 느바 판타지","Come on Adam Silver"];
-const RULE = { budget: 50000, minDays: 14, bonus: 10,
+const RULE = { budget: 50000, minDays: 14, bonus: 20, part: 10, qpts: 20,
   tiers: [{ id: "b", name: "바로 써버리기~", pts: 2000, won: 2000, desc: "2,000원 상당 · 편의점·저가 커피" },
           { id: "s", name: "모았다가 한번에!", pts: 5000, won: 5000, desc: "5,000원 상당 · 커피 전문점" }] };
 const NAME_RE = /^[A-Za-z][A-Za-z'.\-]*(\s+[A-Za-z][A-Za-z'.\-]*)+$/;
@@ -50,9 +50,9 @@ const BANK = {
   nmar: { c: "숫자", lv: 3, f: "num", q: "오늘 가장 큰 점수 차는 몇 점?", fx: "24" },
   ngame: { c: "숫자", lv: 3, f: "num", q: "두 팀 득점 합이 가장 높은 경기의 합계 점수는?", fx: "251" } };
 const DEFAULT_QS = ["pts", "ast", "ghi", "tlo", "reb"];
-const buildQuiz = qd => ((qd && qd.qs && qd.qs.length === 5) ? qd.qs : DEFAULT_QS).map((k, i) => { const b = BANK[k] || BANK[DEFAULT_QS[i]]; return Object.assign({ id: i + 1, key: k, pts: 15 }, F[b.f], b); });
+const buildQuiz = qd => ((qd && qd.qs && qd.qs.length === 5) ? qd.qs : DEFAULT_QS).map((k, i) => { const b = BANK[k] || BANK[DEFAULT_QS[i]]; return Object.assign({ id: i + 1, key: k, pts: RULE.qpts }, F[b.f], b); });
 let QUIZ = buildQuiz(null);
-const MAXP = 15 * 5 + RULE.bonus;
+const MAXP = RULE.qpts * 5 + RULE.bonus + RULE.part;
 const DAY = 86400e3;
 
 /* 카카오톡 인앱 브라우저에서는 구글 로그인이 막혀서 외부 브라우저로 넘김 */
@@ -208,7 +208,7 @@ function statusBanner() {
 
 /* ---------- HOME ---------- */
 function hintHtml(q, v, editable) { const t = esc(q.rule); if (String(v || "").trim() && !fmtOk(q, v)) return '<b class="badfmt">형식이 달라요. 이대로 내면 오답 처리돼요 · ' + t + '</b>'; return '형식: ' + t + (editable ? ' · 마감 전까지 수정 가능' : ''); }
-function earnedToday() { if (!S.ans || !S.ans.res) return 0; let p = 0; QUIZ.forEach(q => { if (S.ans.res[q.id]) p += q.pts; }); if (QUIZ.every(q => S.ans.res[q.id])) p += RULE.bonus; return p; }
+function earnedToday() { if (!S.ans) return 0; let p = (S.quiz && S.quiz.partPaid && S.ans.sub && Object.keys(S.ans.sub).length) ? RULE.part : 0; if (!S.ans.res) return p; QUIZ.forEach(q => { if (S.ans.res[q.id]) p += q.pts; }); if (QUIZ.every(q => S.ans.res[q.id])) p += RULE.bonus; return p; }
 function vHome() {
   const Q = S.quiz, banner = statusBanner();
   if (!Q) return '<section class="board"><div class="board-top"><span class="d">다음 퀴즈</span><span class="pill done">준비 중</span></div><div class="led">READY</div><div class="led-cap">다음 경기 퀴즈는 전날 밤 9시쯤 열려요 (한국시간)</div></section>' + banner;
@@ -219,7 +219,7 @@ function vHome() {
   else if (open) h += '<div class="led" id="cd">--:--:--</div><div class="led-cap">첫 경기 ' + hhmm(Q.deadline) + ' 팁오프 전까지 문항별로 제출 (한국시간)</div>';
   else h += '<div class="led">' + nG + '/5</div><div class="led-cap">정답 확정된 문항 · 경기 끝나는 대로 채점해요</div>';
   if (Q.games && Q.games.length) h += '<div class="games">' + Q.games.map(g => '<div class="game"><span>' + esc(g.a) + ' <span class="t">vs</span> ' + esc(g.h) + '</span><span class="t">' + esc(g.t || "") + '</span></div>').join("") + '</div>';
-  h += '</section><div class="rulebar"><span class="tag">문항별 따로 제출</span><span class="tag">최대 ' + MAXP + 'P</span><span class="tag gold">5개 모두 정답 +' + RULE.bonus + 'P</span><span class="tag">오답 감점 없음</span></div>' + banner;
+  h += '</section><div class="rulebar"><span class="tag">참여 +' + RULE.part + 'P</span><span class="tag">정답 1개당 ' + RULE.qpts + 'P</span><span class="tag gold">5개 모두 정답 +' + RULE.bonus + 'P</span><span class="tag">하루 최대 ' + MAXP + 'P</span><span class="tag">오답 감점 없음</span></div>' + banner;
   const can = approved() && open;
   if (can) { const nS = QUIZ.filter(q => S.ans && S.ans.sub && S.ans.sub[q.id]).length; h += '<div class="notice info"><p><b>제출 ' + nS + ' / 5</b>푼 문항만 먼저 내도 돼요. 낸 문항의 채팅방이 바로 열려요.</p></div>'; }
   QUIZ.forEach((q, i) => {
@@ -306,8 +306,8 @@ const cond = (ok, t) => '<li><i class="' + (ok ? 'y' : 'n') + '">' + (ok ? '✓'
 const NOTICES = [
   { pin: 1, t: "운영자 안내 말씀", b: '<p>「NBA 오늘의 퀴즈는?」은 KB Leopards와 함께 판타지 리그를 하는 분들과 NBA를 더 재미있게 보고 싶어서, 운영자 개인이 비영리로 만든 사이트입니다.</p><p>운영자는 전문 개발자가 아니어서 사이트 오류나 설정 실수가 생길 수 있습니다. 문제가 생기면 최대한 빨리 바로잡겠습니다. 처리에 시간이 조금 걸리더라도 너그러운 양해 부탁드립니다.</p><p><b>다만 포인트 적립·차감·교환 기록만큼은 빠짐없이 철저하게 관리하겠습니다.</b> 오류로 포인트가 잘못 반영된 경우에도 기록을 확인해 정확히 바로잡아 드립니다.</p><p>함께해 주셔서 감사합니다.</p>' },
   { t: "참여 방법과 하루 일정", b: '<dl class="kv"><dt>밤 9시쯤</dt><dd>다음 날 경기 퀴즈 공개 (한국시간)</dd><dt>첫 경기 전</dt><dd>문항마다 따로 답을 적어 제출. 마감 전까지 수정 가능</dd><dt>제출 후</dt><dd>그 문항의 채팅방 입장 가능 (문항마다 채팅방이 따로 있어요)</dd><dt>경기 종료 후</dt><dd>운영자가 공식 기록으로 문항별 정답 확정, 포인트 바로 지급</dd></dl><p class="sub">경기가 없는 날은 퀴즈가 쉬어요.</p>' },
-  { t: "포인트 규정", b: '<ul><li>모든 문항 15P로 같아요</li><li>문항마다 따로 제출하고, 문항마다 따로 채점해요</li><li>5문항 모두 정답이면 보너스 +10P (하루 최대 ' + MAXP + 'P)</li><li>오답·미제출 감점 없음</li><li><b>답은 문제 옆 괄호의 형식 그대로 영어로 적어주세요. 형식이 다르면 오답 처리돼요</b></li><li>선수: 영문 풀네임, 이름 성 순서 (예: Victor Wembanyama) · 팀: 영문 약자 (예: UTA) · 경기: 두 팀 약자 띄어쓰기 (예: POR SAS) · 숫자: 아라비아 숫자만 (예: 38)</li><li>숫자 문제는 실제 기록과 가장 가까운 사람이 정답이에요. 차이가 같으면 모두 정답</li><li>문제 유형은 날마다 바뀌어요. 경기가 적은 날은 조금 어려운 문제가 나올 수 있어요</li><li>대소문자, 마침표·아포스트로피(De&#39;Aaron = DeAaron), 하이픈(Gilgeous-Alexander), Jr.·III 같은 접미사 유무는 구분하지 않아요. 철자가 틀리거나 성만 적으면 오답이에요</li><li>공동 1위는 해당 선수 모두 정답 처리</li><li>경기 취소·연기로 정답을 정할 수 없는 문항은 전원 정답 처리</li><li>기록 정정이 있어도 정답 확정 시점의 공식 기록 기준</li><li>운영 상황에 따라 문항 포인트는 조정될 수 있어요. 바뀌면 미리 공지하고, 이미 쌓인 포인트는 그대로 유지돼요</li></ul>' },
-  { t: "기프티콘 교환 규정", b: '<dl class="kv"><dt>바로 써버리기~</dt><dd>2,000P → 2,000원 상당</dd><dt>모았다가 한번에!</dt><dd>5,000P → 5,000원 상당</dd><dt>횟수</dt><dd>제한 없음. 모은 포인트만큼 교환할 수 있어요</dd><dt>적립 한도</dt><dd>하루 최대 85P라, 한 달 내내 전부 맞혀도 최대 2,635P예요</dd><dt>조건</dt><dd>승인 회원 · 가입 14일 경과</dd></dl><p><b>교환 절차</b></p><ul><li>포인트 탭에서 교환 신청 → 교환 코드 발급 (포인트 바로 차감)</li><li>카톡 문의방에 닉네임과 교환 코드 전송</li><li>운영자가 코드 확인 후 기프티콘 발송</li><li>반려 시 포인트 전액 환불</li></ul><p class="sub">운영 상황에 따라 교환 기준 포인트와 기프티콘 종류는 조정될 수 있어요. 바뀌면 미리 공지하고, 이미 쌓인 포인트는 그대로 유지돼요.</p>' },
+  { t: "포인트 규정", b: '<ul><li>그날 1문항이라도 제출하면 참여 포인트 +' + RULE.part + 'P (맞든 틀리든)</li><li>정답 1개당 ' + RULE.qpts + 'P, 모든 문항 같아요</li><li>문항마다 따로 제출하고, 문항마다 따로 채점해요</li><li>5문항 모두 정답이면 보너스 +' + RULE.bonus + 'P (하루 최대 ' + MAXP + 'P)</li><li>오답·미제출 감점 없음</li><li><b>답은 문제 옆 괄호의 형식 그대로 영어로 적어주세요. 형식이 다르면 오답 처리돼요</b></li><li>선수: 영문 풀네임, 이름 성 순서 (예: Victor Wembanyama) · 팀: 영문 약자 (예: UTA) · 경기: 두 팀 약자 띄어쓰기 (예: POR SAS) · 숫자: 아라비아 숫자만 (예: 38)</li><li>숫자 문제는 실제 기록과 가장 가까운 사람이 정답이에요. 차이가 같으면 모두 정답</li><li>문제 유형은 날마다 바뀌어요. 경기가 적은 날은 조금 어려운 문제가 나올 수 있어요</li><li>대소문자, 마침표·아포스트로피(De&#39;Aaron = DeAaron), 하이픈(Gilgeous-Alexander), Jr.·III 같은 접미사 유무는 구분하지 않아요. 철자가 틀리거나 성만 적으면 오답이에요</li><li>공동 1위는 해당 선수 모두 정답 처리</li><li>경기 취소·연기로 정답을 정할 수 없는 문항은 전원 정답 처리</li><li>기록 정정이 있어도 정답 확정 시점의 공식 기록 기준</li><li>운영 상황에 따라 문항 포인트는 조정될 수 있어요. 바뀌면 미리 공지하고, 이미 쌓인 포인트는 그대로 유지돼요</li></ul>' },
+  { t: "기프티콘 교환 규정", b: '<dl class="kv"><dt>바로 써버리기~</dt><dd>2,000P → 2,000원 상당</dd><dt>모았다가 한번에!</dt><dd>5,000P → 5,000원 상당</dd><dt>횟수</dt><dd>제한 없음. 모은 포인트만큼 교환할 수 있어요</dd><dt>적립 한도</dt><dd>하루 최대 130P라, 한 달 매일 참여해서 전부 맞혀도 최대 4,030P예요</dd><dt>조건</dt><dd>승인 회원 · 가입 14일 경과</dd></dl><p><b>교환 절차</b></p><ul><li>포인트 탭에서 교환 신청 → 교환 코드 발급 (포인트 바로 차감)</li><li>카톡 문의방에 닉네임과 교환 코드 전송</li><li>운영자가 코드 확인 후 기프티콘 발송</li><li>반려 시 포인트 전액 환불</li></ul><p class="sub">운영 상황에 따라 교환 기준 포인트와 기프티콘 종류는 조정될 수 있어요. 바뀌면 미리 공지하고, 이미 쌓인 포인트는 그대로 유지돼요.</p>' },
   { t: "가입 · 중복 가입 규정", b: '<ul><li>구글 계정으로 로그인한 뒤 가입 신청해요</li><li>KB Leopards와 같은 리그를 하는 리그원, 리그원이 초대한 지인만 가입할 수 있어요</li><li>리그원은 판타지 앱 안의 닉네임을 그대로 적어주세요. 운영자가 리그 명단과 대조해 승인해요</li><li>지인은 초대한 리그원의 리그와 닉네임을 적어주세요</li><li>1인 1계정. 여러 리그에 있어도 계정은 하나만</li><li>한 연락처로는 한 계정만 가입할 수 있어요</li><li>중복·부정 참여가 확인되면 포인트가 회수되고 이용이 제한돼요</li></ul>' },
   { t: "개인정보 안내", b: '<dl class="kv"><dt>수집 항목</dt><dd>이름, 연락처, 리그, 닉네임, 구글 계정 이메일</dd><dt>이용 목적</dt><dd>가입 확인, 중복 가입 방지, 기프티콘 발송</dd><dt>보관</dt><dd>탈퇴 요청 시 즉시 삭제</dd><dt>공개 범위</dt><dd>다른 참여자에게는 닉네임과 리그만 보여요</dd></dl>' },
   { t: "자주 묻는 질문", b: '<p><b>참가비가 있나요?</b><br>없어요. 기프티콘은 운영자가 사비로 준비합니다.</p><p><b>포인트에 유효기간이 있나요?</b><br>없어요. 모은 포인트는 언제든 교환할 수 있어요.</p><p><b>카카오톡에서 링크를 열었는데 로그인이 안 돼요.</b><br>카톡 안의 브라우저에서는 구글 로그인이 막혀 있어요. 크롬이나 삼성 인터넷으로 열어주세요.</p><p><b>정답이 이상해요.</b><br>카톡 문의방에 문항 번호와 근거 기록을 보내주세요. 확인 후 바로잡아 드려요.</p>' }];
@@ -352,8 +352,8 @@ function vAdmin() {
   const mk = monthKey(), sp = S.okEx.filter(x => toDate(x.at) && monthKey(toDate(x.at)) === mk).reduce((a, x) => a + x.won, 0);
   if (S.admTab === "dash") {
     h += '<div class="tiles"><div class="tile"><span>가입 승인 대기</span><b>' + S.waitUsers.length + '</b></div><div class="tile"><span>교환 발송 대기</span><b>' + S.waitEx.length + '</b></div><div class="tile"><span>이번 달 지출</span><b>' + fmt(sp) + '</b><span>원 / 기준 ' + fmt(RULE.budget) + '</span></div><div class="tile"><span>기준까지 여유</span><b>' + fmt(RULE.budget - sp) + '</b><span>원 · 운영자만 보여요</span></div></div>';
-    h += '<section class="card"><h3>예산 시뮬레이터</h3><p class="sub" style="margin:4px 0 12px">인원과 정답률을 넣으면 한 달 예상 지출을 계산해요. 예산은 운영자만 보고, 참여자 화면에는 나오지 않아요.</p><div class="sim"><div class="field"><label for="s-n">활성 인원</label><input id="s-n" type="number" inputmode="numeric" value="50" min="1"></div><div class="field"><label for="s-a">평균 정답률 %</label><input id="s-a" type="number" inputmode="numeric" value="40" min="0" max="100"></div></div><div id="simout" style="margin-top:12px"></div></section>';
-    h += '<section class="card"><h3>제도 설정값</h3><dl class="kv" style="margin-top:10px"><dt>교환 단가</dt><dd>1P = 1원 (바로 써버리기~ 2,000P · 모았다가 한번에! 5,000P)</dd><dt>하루 최대</dt><dd>' + MAXP + 'P</dd><dt>한 달 최대</dt><dd>28경기일 2,380P ~ 31경기일 2,635P (매일 전부 정답 가정)</dd><dt>만점자 한 달</dt><dd>최대 2,635원어치 · 2,000P 교환 1회가 한계</dd><dt>설계 기준</dt><dd>활성 50명 · 평균 정답률 40% · 30경기일 → 월 약 45,150원</dd><dt>교환 가능</dt><dd>가입 14일 후</dd></dl></section>';
+    h += '<section class="card"><h3>예산 시뮬레이터</h3><p class="sub" style="margin:4px 0 12px">인원과 정답률을 넣으면 한 달 예상 지출을 계산해요. 예산은 운영자만 보고, 참여자 화면에는 나오지 않아요.</p><div class="sim"><div class="field"><label for="s-n">활성 인원</label><input id="s-n" type="number" inputmode="numeric" value="50" min="1"></div><div class="field"><label for="s-a">평균 정답률 %</label><input id="s-a" type="number" inputmode="numeric" value="30" min="0" max="100"></div><div class="field"><label for="s-r">참여율 %</label><input id="s-r" type="number" inputmode="numeric" value="70" min="0" max="100"></div></div><div id="simout" style="margin-top:12px"></div></section>';
+    h += '<section class="card"><h3>제도 설정값</h3><dl class="kv" style="margin-top:10px"><dt>교환 단가</dt><dd>1P = 1원 (바로 써버리기~ 2,000P · 모았다가 한번에! 5,000P)</dd><dt>하루 최대</dt><dd>' + MAXP + 'P</dd><dt>포인트</dt><dd>참여 10P · 정답 20P · 전부 정답 +20P</dd><dt>한 달 최대</dt><dd>28경기일 3,640P ~ 31경기일 4,030P (매일 참여·전부 정답 가정)</dd><dt>만점자 한 달</dt><dd>2,000P 교환 최대 2회 (3회는 불가)</dd><dt>설계 기준</dt><dd>활성 50명 · 정답률 30% · 참여율 70% · 28경기일 → 월 약 39,300원</dd><dt>교환 가능</dt><dd>가입 14일 후</dd></dl></section>';
   }
   if (S.admTab === "quiz") {
     const nd = new Date(Date.now() + (kst().getUTCHours() >= 12 ? DAY : 0));
@@ -422,10 +422,10 @@ function vAdmin() {
 }
 function exCard(x) { return '<article class="card app"><div class="app-h"><b class="num" style="font-size:18px">' + esc(x.code) + '</b><span class="st ' + x.status + '">' + ({ wait: "발송 대기", ok: "발송 완료", no: "반려" })[x.status] + '</span></div><dl class="kv"><dt>닉네임</dt><dd>' + esc(x.nick) + '</dd><dt>교환</dt><dd>' + (x.tier === "s" ? "모았다가 한번에!" : "바로 써버리기~") + ' · ' + fmt(x.won) + '원 상당 (' + fmt(x.pts) + 'P)</dd><dt>신청</dt><dd>' + dLabel(dateKey(toDate(x.at) || new Date())) + ' ' + hhmm(x.at) + '</dd></dl>' + (x.status === "wait" ? '<div class="row"><button class="btn line sm" data-x="' + esc(x.code) + '" data-xs="no">반려 · 환불</button><button class="btn pri sm" data-x="' + esc(x.code) + '" data-xs="ok">발송 완료</button></div>' : '') + '</article>'; }
 function simCalc() {
-  const ni = document.getElementById("s-n"), ai = document.getElementById("s-a"); if (!ni) return;
-  const n = +ni.value || 0, a = Math.min(100, Math.max(0, +ai.value || 0)) / 100;
-  const day = QUIZ.reduce((s, q) => s + q.pts * a, 0) + RULE.bonus * Math.pow(a, 5), won = Math.round(day * 30 * n / 100) * 100, maxN = day > 0 ? Math.floor(RULE.budget / (day * 30)) : 0;
-  document.getElementById("simout").innerHTML = '<dl class="kv"><dt>1인 하루 평균</dt><dd class="num">' + day.toFixed(1) + 'P</dd><dt>1인 월 평균</dt><dd class="num">' + fmt(Math.round(day * 30)) + 'P</dd><dt>월 예상 지출</dt><dd class="num"><b>' + fmt(won) + '원</b></dd><dt>5만 원 안 최대 인원</dt><dd class="num">' + fmt(maxN) + '명</dd></dl>' + (won > RULE.budget ? '<div class="notice warn" style="margin-top:10px"><p>5만 원을 넘어요. 다음 달 문항 포인트를 낮추거나 교환 단가를 올리세요.</p></div>' : '<div class="notice ok" style="margin-top:10px"><p>5만 원 안이에요. 여유 ' + fmt(RULE.budget - won) + '원</p></div>');
+  const ni = document.getElementById("s-n"), ai = document.getElementById("s-a"), ri = document.getElementById("s-r"); if (!ni) return;
+  const n = +ni.value || 0, a = Math.min(100, Math.max(0, +ai.value || 0)) / 100, r = Math.min(100, Math.max(0, +ri.value || 0)) / 100;
+  const day = RULE.part + RULE.qpts * 5 * a + RULE.bonus * Math.pow(a, 5), per = day * 28 * r, won = Math.round(per * n / 100) * 100, maxN = per > 0 ? Math.floor(RULE.budget / per) : 0;
+  document.getElementById("simout").innerHTML = '<dl class="kv"><dt>참여한 날 평균</dt><dd class="num">' + day.toFixed(1) + 'P</dd><dt>1인 월 평균</dt><dd class="num">' + fmt(Math.round(per)) + 'P</dd><dt>월 예상 지출</dt><dd class="num"><b>' + fmt(won) + '원</b></dd><dt>5만 원 안 최대 인원</dt><dd class="num">' + fmt(maxN) + '명</dd></dl>' + (won > RULE.budget ? '<div class="notice warn" style="margin-top:10px"><p>5만 원을 넘어요. 다음 달 포인트를 낮추거나 교환 기준을 올리세요.</p></div>' : '<div class="notice ok" style="margin-top:10px"><p>5만 원 안이에요. 여유 ' + fmt(RULE.budget - won) + '원</p></div>');
 }
 
 /* ---------- 동작 ---------- */
@@ -515,6 +515,9 @@ async function grade(id) {
       ops.push(b => b.update(d.ref, { ["res." + id]: ok }));
       if (ok) { ops.push(b => b.update(doc(db, "users", a.uid), { points: increment(q.pts) })); ops.push(b => b.set(doc(collection(db, "ledger")), { uid: a.uid, p: q.pts, t: label + " " + id + "번 정답", at: serverTimestamp() })); }
       bump(a.uid, ok ? q.pts : 0, ok ? 1 : 0, 1); });
+    if (!Q.partPaid) { as.docs.forEach(d => { const a = d.data(); if (!a.sub || !Object.keys(a.sub).length) return;
+      ops.push(b => b.update(doc(db, "users", a.uid), { points: increment(RULE.part) })); ops.push(b => b.set(doc(collection(db, "ledger")), { uid: a.uid, p: RULE.part, t: label + " 참여", at: serverTimestamp() })); bump(a.uid, RULE.part, 0, 0); });
+      ops.push(b => b.update(doc(db, "quizzes", Q.date), { partPaid: true })); }
     const graded = Object.assign({}, Q.graded || {}, { [id]: true });
     if (QUIZ.every(x => graded[x.id])) Object.keys(resAll).forEach(uid => { if (QUIZ.every(x => resAll[uid][x.id] === true)) {
       ops.push(b => b.update(doc(db, "users", uid), { points: increment(RULE.bonus) })); ops.push(b => b.set(doc(collection(db, "ledger")), { uid, p: RULE.bonus, t: label + " 전문항 정답 보너스", at: serverTimestamp() })); bump(uid, RULE.bonus, 0, 0); } });
@@ -676,7 +679,7 @@ document.addEventListener("input", ev => {
     const hh = document.getElementById("h-" + id); if (hh) hh.innerHTML = hintHtml(qById(id), t.value, S.ans && S.ans.sub && S.ans.sub[id]); }
   if (t.dataset.keyin) { const k = t.dataset.keyin; S.keyDraft[k] = t.value; const gb = document.querySelector('[data-grade="' + k + '"]'); if (gb && !quizOpen()) gb.disabled = !t.value.trim(); }
   if (t.id === "j-phone") { const d = t.value.replace(/\D/g, "").slice(0, 11); t.value = d.length > 7 ? d.slice(0, 3) + "-" + d.slice(3, 7) + "-" + d.slice(7) : d.length > 3 ? d.slice(0, 3) + "-" + d.slice(3) : d; }
-  if (t.id === "s-n" || t.id === "s-a") simCalc();
+  if (t.id === "s-n" || t.id === "s-a" || t.id === "s-r") simCalc();
   if (t.id === "mem-q") { S.memQ = t.value; render(true); }
 });
 document.addEventListener("submit", ev => {
