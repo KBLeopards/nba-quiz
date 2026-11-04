@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && request.auth.token.email_verified == true
+        && request.auth.token.email in ['kyubum1231@gmail.com'];
+    }
+    function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function me() { return get(userPath(request.auth.uid)).data; }
+    function approved() { return signedIn() && exists(userPath(request.auth.uid)) && me().status == 'ok'; }
+
+    // 회원 (이름·연락처는 본인과 운영자만)
+    match /users/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name','phone','type','league','nick','invNick','email','status','points','createdAt'])
+        && request.resource.data.status == 'wait'
+        && request.resource.data.points == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.type in ['리그원','지인']
+        && request.resource.data.league is string
+        && request.resource.data.nick is string && request.resource.data.nick.size() > 0 && request.resource.data.nick.size() <= 20
+        && request.resource.data.name is string && request.resource.data.name.size() <= 20
+        && request.resource.data.phone.matches('^01[0-9]-[0-9]{3,4}-[0-9]{4}$')
+        && getAfter(/databases/$(database)/documents/phones/$(request.resource.data.phone)).data.uid == uid;
+      // 본인은 교환 신청할 때 포인트 차감만 가능
+      allow update: if isAdmin() || (
+        approved() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points','lastEx'])
+        && request.resource.data.points >= 0
+        && !exists(/databases/$(database)/documents/exchanges/$(request.resource.data.lastEx))
+        && getAfter(/databases/$(database)/documents/exchanges/$(request.resource.data.lastEx)).data.uid == uid
+        && getAfter(/databases/$(database)/documents/exchanges/$(request.resource.data.lastEx)).data.pts == resource.data.points - request.resource.data.points);
+      allow delete: if isAdmin();
+    }
+
+    // 연락처 중복 가입 방지
+    match /phones/{phone} {
+      allow read, delete: if isAdmin();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid']);
+    }
+
+    // 공개 프로필 (닉네임·리그·월간 점수)
+    match /profiles/{uid} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /rosters/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /quizzes/{date} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 답안: 본인과 운영자만, 마감 전까지만
+    match /answers/{aid} {
+      function quizOf(d) { return get(/databases/$(database)/documents/quizzes/$(d)).data; }
+      function okWrite() {
+        return approved()
+          && request.resource.data.uid == request.auth.uid
+          && aid == request.resource.data.date + '_' + request.auth.uid
+          && request.time < quizOf(request.resource.data.date).deadline
+          && request.resource.data.keys().hasOnly(['uid','date','a','sub']);
+      }
+      allow read: if isAdmin() || (signedIn() && aid.split('_')[1] == request.auth.uid);
+      allow create: if isAdmin() || okWrite();
+      allow update: if isAdmin() || (okWrite() && resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // 문항별 채팅: 그 문항을 제출한 사람만
+    match /chats/{room}/msgs/{mid} {
+      function canRoom() {
+        let d = room.split('_')[0];
+        let q = room.split('_')[1];
+        return isAdmin() || (approved()
+          && q in get(/databases/$(database)/documents/answers/$(d + '_' + request.auth.uid)).data.sub);
+      }
+      allow read: if canRoom();
+      allow create: if canRoom()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.m is string && request.resource.data.m.size() > 0 && request.resource.data.m.size() <= 200
+        && request.resource.data.at == request.time
+        && (isAdmin() || request.resource.data.nick == me().nick);
+      allow delete: if isAdmin();
+    }
+
+    // 기프티콘 교환
+    match /exchanges/{code} {
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if approved()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.code == code
+        && request.resource.data.status == 'wait'
+        && request.resource.data.at == request.time
+        && ((request.resource.data.tier == 'b' && request.resource.data.pts == 2000 && request.resource.data.won == 2000)
+         || (request.resource.data.tier == 's' && request.resource.data.pts == 5000 && request.resource.data.won == 5000))
+        && request.time > me().createdAt + duration.value(14, 'd')
+        && getAfter(userPath(request.auth.uid)).data.points == me().points - request.resource.data.pts
+        && getAfter(userPath(request.auth.uid)).data.lastEx == code;
+      allow update, delete: if isAdmin();
+    }
+
+    // 포인트 장부
+    match /ledger/{id} {
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow write: if isAdmin();
+    }
+  }
+}
