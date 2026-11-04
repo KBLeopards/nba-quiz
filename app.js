@@ -353,6 +353,8 @@ function vAdmin() {
     h += '<div class="tiles"><div class="tile"><span>가입 승인 대기</span><b>' + S.waitUsers.length + '</b></div><div class="tile"><span>교환 발송 대기</span><b>' + S.waitEx.length + '</b></div><div class="tile"><span>이번 달 지출</span><b>' + fmt(sp) + '</b><span>원 / 기준 ' + fmt(RULE.budget) + '</span></div><div class="tile"><span>기준까지 여유</span><b>' + fmt(RULE.budget - sp) + '</b><span>원 · 운영자만 보여요</span></div></div>';
     h += '<section class="card"><h3>예산 시뮬레이터</h3><p class="sub" style="margin:4px 0 12px">인원과 정답률을 넣으면 한 달 예상 지출을 계산해요. 예산은 운영자만 보고, 참여자 화면에는 나오지 않아요.</p><div class="sim"><div class="field"><label for="s-n">활성 인원</label><input id="s-n" type="number" inputmode="numeric" value="50" min="1"></div><div class="field"><label for="s-a">평균 정답률 %</label><input id="s-a" type="number" inputmode="numeric" value="40" min="0" max="100"></div></div><div id="simout" style="margin-top:12px"></div></section>';
     h += '<section class="card"><h3>제도 설정값</h3><dl class="kv" style="margin-top:10px"><dt>교환 단가</dt><dd>1P = 1원 (바로 써버리기~ 2,000P · 모았다가 한번에! 5,000P)</dd><dt>하루 최대</dt><dd>' + MAXP + 'P</dd><dt>한 달 최대</dt><dd>28경기일 2,380P ~ 31경기일 2,635P (매일 전부 정답 가정)</dd><dt>만점자 한 달</dt><dd>최대 2,635원어치 · 2,000P 교환 1회가 한계</dd><dt>설계 기준</dt><dd>활성 50명 · 평균 정답률 40% · 30경기일 → 월 약 45,150원</dd><dt>교환 가능</dt><dd>가입 14일 후</dd></dl></section>';
+    h += '<section class="card form danger"><h3>기록 초기화 (새 판 시작)</h3><p class="sub">테스트 기록을 지우고 처음 상태로 돌려요. <b>퀴즈·답안·채팅·포인트 장부·교환 내역이 전부 삭제</b>되고, 모든 회원 포인트와 월별 순위가 0이 돼요. 가입자 계정·승인 상태·리그 명단은 그대로 남아요. 되돌릴 수 없어요.</p>' +
+      '<div class="field"><label for="rst-c">확인을 위해 <b>초기화</b> 라고 입력하세요</label><input id="rst-c" autocomplete="off" placeholder="초기화"></div><button class="btn danger-btn" id="rst-go"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? '지우는 중…' : '기록 전부 초기화') + '</button></section>';
   }
   if (S.admTab === "quiz") {
     const nd = new Date(Date.now() + (kst().getUTCHours() >= 12 ? DAY : 0));
@@ -548,6 +550,24 @@ async function parseRosterFile(file) {
   } catch (e) { toast("엑셀을 읽지 못했어요: " + (e.message || e)); }
 }
 
+async function resetAll() {
+  const c = document.getElementById("rst-c"); if (!c || c.value.trim() !== "초기화") { toast("확인 칸에 '초기화'라고 입력해 주세요"); return; }
+  S.busy = true; render(true);
+  try {
+    const refs = [], ups = [];
+    const qz = await getDocs(collection(db, "quizzes"));
+    for (const d of qz.docs) for (let n = 1; n <= 5; n++) { const m = await getDocs(collection(db, "chats", d.id + "_" + n, "msgs")); m.docs.forEach(x => refs.push(x.ref)); }
+    qz.docs.forEach(d => refs.push(d.ref));
+    for (const col of ["answers", "ledger", "exchanges"]) { const g = await getDocs(collection(db, col)); g.docs.forEach(d => refs.push(d.ref)); }
+    const us = await getDocs(collection(db, "users")); us.docs.forEach(d => ups.push(b => b.update(d.ref, { points: 0 })));
+    const pf = await getDocs(collection(db, "profiles")); pf.docs.forEach(d => ups.push(b => b.update(d.ref, { m: {} })));
+    await commitOps(refs.map(r => b => b.delete(r)).concat(ups));
+    S.profiles = null; S.ledger = []; S.exchanges = []; S.drafts = {}; S.keyDraft = {};
+    toast("초기화 완료 · 삭제 " + refs.length + "건, 회원 " + us.size + "명 포인트 0"); loadAdmin();
+  } catch (e) { toast("초기화 중 오류: " + (e.code || e.message) + " · 다시 누르면 남은 것만 지워요"); }
+  S.busy = false; render(true);
+}
+
 /* ---------- 시트·토스트 ---------- */
 function sheet(html) { document.getElementById("layer").innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>' + html + '</div></div>'; }
 function closeSheet() { document.getElementById("layer").innerHTML = ""; }
@@ -579,6 +599,7 @@ document.addEventListener("click", ev => {
   if (b.dataset.app) { b.disabled = true; approve(b.dataset.app, b.dataset.st); return; }
   if (b.dataset.grade) { grade(b.dataset.grade); return; }
   if (b.id === "qz-open") { openQuiz(); return; }
+  if (b.id === "rst-go") { resetAll(); return; }
   if (b.dataset.pick) { const k = b.dataset.pick, i = S.pick.indexOf(k); if (i >= 0) S.pick.splice(i, 1); else if (S.pick.length < 5) S.pick.push(k); else { toast("5문제까지 고를 수 있어요. 하나를 먼저 빼주세요"); return; }
     const keep = ["qz-d", "qz-t", "qz-g"].map(id => { const e = document.getElementById(id); return e ? e.value : ""; }); render(true); ["qz-d", "qz-t", "qz-g"].forEach((id, n) => { const e = document.getElementById(id); if (e) e.value = keep[n]; }); return; }
   if (b.dataset.x) { b.disabled = true; settleEx(b.dataset.x, b.dataset.xs); return; }
