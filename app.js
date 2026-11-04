@@ -67,7 +67,7 @@ function matchNick(league, nick) {
 }
 
 /* ---------- 상태 ---------- */
-const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "me",
+const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "pts", rankMonth: "",
   profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0] };
 let unsubMe = null, unsubAns = null, unsubChat = null;
 const approved = () => !!(S.me && S.me.status === "ok");
@@ -203,21 +203,24 @@ function vHome() {
 }
 
 /* ---------- RANK ---------- */
+const mKey = mk => "k" + mk.replace("-", "");
+const mLabel = mk => mk.slice(0, 4) + "년 " + Number(mk.slice(5)) + "월";
 function vRank() {
   if (!S.user) return '<h2>순위</h2>' + statusBanner();
   if (S.profiles === null) { loadProfiles(); return '<h2>순위</h2><p class="sub">불러오는 중…</p>'; }
-  const mk = monthKey(), list = S.profiles.filter(p => p.monthKey === mk).sort((a, b) => (b.monthPts || 0) - (a.monthPts || 0));
-  let h = '<div class="sect-h"><h2>순위</h2><span class="sub">' + Number(mk.slice(5)) + '월</span></div><div class="seg" role="group"><button data-rt="me" aria-pressed="' + (S.rankTab === "me") + '">개인 순위</button><button data-rt="lg" aria-pressed="' + (S.rankTab === "lg") + '">리그 대항전</button></div>';
-  if (S.rankTab === "me") {
-    h += list.length ? '<section class="card" style="padding:8px 12px"><div class="rank-list">' + list.slice(0, 50).map((r, i) => { const me = S.user && r.id === S.user.uid;
-      return '<div class="rk' + (i < 3 ? ' top' : '') + (me ? ' me' : '') + '"><span class="n">' + (i + 1) + '</span><div class="who"><b>' + esc(r.nick) + (me ? ' (나)' : '') + '</b><small>' + esc(r.league) + '</small></div><span class="p">' + fmt(r.monthPts) + '<small style="font-size:12px;color:var(--muted)"> P</small></span></div>'; }).join("") + '</div></section>' : '<p class="empty">이번 달 첫 채점이 끝나면 순위가 나와요</p>';
-    h += '<p class="sub">이번 달 획득 포인트 기준. 교환해도 순위 점수는 줄지 않아요.</p>';
-  } else {
-    const g = {}; list.forEach(p => { const k = p.league || "기타"; g[k] = g[k] || { r: 0, a: 0 }; g[k].r += p.monthRight || 0; g[k].a += p.monthAns || 0; });
-    const rows = Object.keys(g).map(k => [k, g[k].a ? Math.round(g[k].r / g[k].a * 100) : 0]).sort((a, b) => b[1] - a[1]); const mx = Math.max(1, ...rows.map(r => r[1]));
-    h += rows.length ? '<section class="card">' + rows.map(r => { const mine = S.me && r[0] === S.me.league; return '<div class="bar' + (mine ? ' mine' : '') + '"><b>' + esc(r[0]) + '</b><span class="v">' + r[1] + '%</span><div class="track"><i style="width:' + (r[1] / mx * 100) + '%"></i></div></div>'; }).join("") + '</section>' : '<p class="empty">이번 달 첫 채점이 끝나면 집계돼요</p>';
-    h += '<p class="sub">리그 소속 참여자의 평균 정답률. 지인은 초대한 리그원의 리그로 집계해요.</p>';
-  }
+  const cur = monthKey(), months = new Set([cur]);
+  S.profiles.forEach(p => Object.keys(p.m || {}).forEach(k => months.add(k.slice(1, 5) + "-" + k.slice(5))));
+  const list = [...months].sort().reverse(); if (!S.rankMonth || !months.has(S.rankMonth)) S.rankMonth = cur;
+  const k = mKey(S.rankMonth), byRight = S.rankTab === "right";
+  const rows = S.profiles.map(p => ({ id: p.id, nick: p.nick, league: p.league, st: (p.m || {})[k] || {} })).filter(r => r.st.a || r.st.p)
+    .sort((a, b) => byRight ? ((b.st.r || 0) - (a.st.r || 0) || (b.st.p || 0) - (a.st.p || 0)) : ((b.st.p || 0) - (a.st.p || 0) || (b.st.r || 0) - (a.st.r || 0)));
+  let h = '<div class="sect-h"><h2>순위</h2><select id="rk-m" class="msel" aria-label="월 선택">' + list.map(m => '<option value="' + m + '"' + (m === S.rankMonth ? ' selected' : '') + '>' + mLabel(m) + '</option>').join("") + '</select></div>' +
+    '<div class="seg" role="group"><button data-rt="pts" aria-pressed="' + !byRight + '">포인트 순위</button><button data-rt="right" aria-pressed="' + byRight + '">정답 횟수 순위</button></div>';
+  h += rows.length ? '<section class="card" style="padding:8px 12px"><div class="rank-list">' + rows.slice(0, 50).map((r, i) => { const me = S.user && r.id === S.user.uid;
+    return '<div class="rk' + (i < 3 ? ' top' : '') + (me ? ' me' : '') + '"><span class="n">' + (i + 1) + '</span><div class="who"><b>' + esc(r.nick) + (me ? ' (나)' : '') + '</b><small>' + esc(r.league) + ' · 제출 ' + (r.st.a || 0) + '문항</small></div><span class="p">' +
+      (byRight ? fmt(r.st.r || 0) + '<small style="font-size:12px;color:var(--muted)"> 개</small>' : fmt(r.st.p || 0) + '<small style="font-size:12px;color:var(--muted)"> P</small>') + '</span></div>'; }).join("") + '</div></section>'
+    : '<p class="empty">' + mLabel(S.rankMonth) + ' 첫 채점이 끝나면 순위가 나와요</p>';
+  h += '<p class="sub">' + (byRight ? '그달 맞힌 문항 수 기준. 같으면 포인트가 높은 순.' : '그달 획득 포인트 기준. 교환해도 순위 점수는 줄지 않아요.') + '</p>';
   return h;
 }
 
@@ -424,9 +427,8 @@ async function grade(id) {
     const [as, ps] = await Promise.all([getDocs(query(collection(db, "answers"), where("date", "==", Q.date))), getDocs(collection(db, "profiles"))]);
     const prof = {}; ps.docs.forEach(d => prof[d.id] = d.data());
     const mk = monthKey(), label = dLabel(Q.date), ops = []; let nSub = 0, nRight = 0; const resAll = {};
-    const bump = (uid, pts, right, ans) => { const p = prof[uid]; if (!p) return; const r = doc(db, "profiles", uid);
-      if (p.monthKey !== mk) { p.monthKey = mk; p.monthPts = pts; p.monthRight = right; p.monthAns = ans; ops.push(b => b.update(r, { monthKey: mk, monthPts: pts, monthRight: right, monthAns: ans })); }
-      else ops.push(b => b.update(r, { monthPts: increment(pts), monthRight: increment(right), monthAns: increment(ans) })); };
+    const mk2 = mKey(mk);
+    const bump = (uid, pts, right, ans) => { if (!prof[uid]) return; ops.push(b => b.update(doc(db, "profiles", uid), { ["m." + mk2 + ".p"]: increment(pts), ["m." + mk2 + ".r"]: increment(right), ["m." + mk2 + ".a"]: increment(ans) })); };
     as.docs.forEach(d => { const a = d.data(); resAll[a.uid] = Object.assign({}, a.res || {});
       if (!(a.sub && a.sub[id])) return; nSub++; const ok = isRight(id, a.a && a.a[id], key); if (ok) nRight++; resAll[a.uid][id] = ok;
       ops.push(b => b.update(d.ref, { ["res." + id]: ok }));
@@ -444,7 +446,7 @@ async function approve(uid, st) {
   const a = S.waitUsers.find(x => x.id === uid); if (!a) return;
   try {
     const b = writeBatch(db); b.update(doc(db, "users", uid), { status: st, decidedAt: serverTimestamp() });
-    if (st === "ok") b.set(doc(db, "profiles", uid), { nick: a.nick, league: a.league, monthKey: "", monthPts: 0, monthRight: 0, monthAns: 0 });
+    if (st === "ok") b.set(doc(db, "profiles", uid), { nick: a.nick, league: a.league, m: {} });
     else b.delete(doc(db, "phones", a.phone));
     await b.commit(); toast(a.nick + (st === "ok" ? " 승인" : " 반려")); loadAdmin();
   } catch (e) { toast("실패: " + (e.code || e.message)); }
@@ -493,7 +495,7 @@ document.addEventListener("click", ev => {
   if (b.id === "rs-save") { const l = document.getElementById("rs-l").value, nicks = document.getElementById("rs-t").value.split("\n").map(s => s.trim()).filter(Boolean);
     setDoc(doc(db, "rosters", "L" + LEAGUES.indexOf(l)), { league: l, nicks }).then(() => { S.rosters[l] = nicks; toast(l + " 명단 " + nicks.length + "명 저장"); render(true); }, e => toast("실패: " + (e.code || e.message))); return; }
 });
-document.addEventListener("change", ev => { if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
+document.addEventListener("change", ev => { if (ev.target.id === "rk-m") { S.rankMonth = ev.target.value; render(true); return; } if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
 document.addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target.dataset && ev.target.dataset.ans) { ev.preventDefault(); const bt = document.querySelector('[data-sub="' + ev.target.dataset.ans + '"]'); if (bt && !bt.disabled) bt.click(); } });
 document.addEventListener("input", ev => {
   const t = ev.target;
