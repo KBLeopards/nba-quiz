@@ -441,7 +441,9 @@ function vAdmin() {
       const nickOf = uid => { const p = (S.allProfiles || []).find(x => x.id === uid) || (S.members || []).find(x => x.id === uid); return p ? p.nick : uid.slice(0, 6); };
       const list = S.ansList.slice().sort((a, b) => nickOf(a.uid).localeCompare(nickOf(b.uid), "ko"));
       const full = list.filter(a => qs.every(q => a.sub && a.sub[q.id])).length;
-      h += '<div class="sect-h"><h3>' + dLabel(d) + ' 답안</h3><button class="btn line sm" data-ans-reload>새로고침</button></div>';
+      if (S.hist === null) loadHistory();
+      const dates = [...new Set([S.quiz && S.quiz.date, ...(S.hist || []).map(x => x.date)].filter(Boolean))].sort().reverse();
+      h += '<div class="sect-h"><select id="ans-d" class="msel" aria-label="날짜 선택">' + dates.map(x => '<option value="' + x + '"' + (x === d ? ' selected' : '') + '>' + dLabel(x) + (S.quiz && x === S.quiz.date ? ' (최근)' : '') + '</option>').join("") + '</select><button class="btn line sm" data-ans-reload>새로고침</button></div>';
       h += '<div class="tiles"><div class="tile"><span>제출한 사람</span><b>' + list.length + '</b></div><div class="tile"><span>5문항 모두 제출</span><b>' + full + '</b></div></div>';
       h += '<section class="card"><h3>문항별 답 분포</h3>' + qs.map((q, i) => {
         const cnt = {}; list.forEach(a => { if (!(a.sub && a.sub[q.id])) return; const v = String(a.a[q.id] || "").trim(), k = fmtOk(q, v) ? canon(q, v) : "__bad"; cnt[k] = cnt[k] || { label: v, n: 0 }; cnt[k].n++; });
@@ -743,7 +745,7 @@ document.addEventListener("click", ev => {
     saveRosters({ [l]: teams }).then(() => toast(l + " 명단 " + teams.length + "팀 저장")); return; }
   if (b.id === "rs-up-save") { b.disabled = true; saveRosters(S.rosterUpload).then(() => { toast(Object.keys(S.rosterUpload).length + "개 리그 명단 저장 완료"); S.rosterUpload = null; render(true); }); return; }
 });
-document.addEventListener("change", ev => { if (ev.target.id === "rs-file" && ev.target.files[0]) { parseRosterFile(ev.target.files[0]); return; } if (ev.target.id === "rk-m") { S.rankMonth = ev.target.value; render(true); return; } if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
+document.addEventListener("change", ev => { if (ev.target.id === "ans-d") { S.ansDate = ev.target.value; S.ansList = null; render(true); return; } if (ev.target.id === "rs-file" && ev.target.files[0]) { parseRosterFile(ev.target.files[0]); return; } if (ev.target.id === "rk-m") { S.rankMonth = ev.target.value; render(true); return; } if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
 document.addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target.dataset && ev.target.dataset.ans) { ev.preventDefault(); const bt = document.querySelector('[data-sub="' + ev.target.dataset.ans + '"]'); if (bt && !bt.disabled) bt.click(); } });
 document.addEventListener("input", ev => {
   const t = ev.target;
