@@ -56,19 +56,20 @@ function isRight(id, ans, keyStr) {
 function lev(a, b) { const m = a.length, n = b.length, d = []; for (let i = 0; i <= m; i++) d[i] = [i]; for (let j = 0; j <= n; j++) d[0][j] = j;
   for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[m][n]; }
 function matchNick(league, nick) {
-  const list = (S.rosters[league] || []); if (!list.length) return { k: "no", t: "명단 미등록" };
-  const nn = norm(nick); let best = null, bd = 99;
-  list.forEach(r => { const dd = lev(nn, norm(r)); if (dd < bd) { bd = dd; best = r; } });
-  if (list.includes(nick)) return { k: "ok", t: "명단 일치" };
-  if (bd === 0) return { k: "ok", t: "일치 · 표기 차이 (" + best + ")" };
+  const list = S.rosters[league] || []; if (!list.length) return { k: "no", t: "명단 미등록", mgr: "" };
+  const nn = norm(nick); let best = null, bd = 99, bm = "", bt = "";
+  list.forEach(e => [e.team, e.mgr].forEach(n => { if (!n) return; const dd = lev(nn, norm(n)); if (dd < bd) { bd = dd; best = n; bm = e.mgr || ""; bt = e.team || ""; } }));
+  const who = bm ? " · 팀 " + bt + " / 매니저 " + bm : "";
+  if (bd === 0) return { k: "ok", t: (best === nick ? "명단 일치" : "일치 · 표기 차이") + who, mgr: bm };
   const sim = 1 - bd / Math.max(nn.length, norm(best).length, 1);
-  if (bd <= 2 && sim >= 0.6) return { k: "near", t: "유사 · " + best + "?" };
-  return { k: "no", t: "명단에 없음" };
+  if (bd <= 2 && sim >= 0.6) return { k: "near", t: "유사 · " + best + "?" + who, mgr: bm };
+  return { k: "no", t: "명단에 없음", mgr: "" };
 }
+function loadScript(src) { return new Promise((res, rej) => { if (document.querySelector('script[src="' + src + '"]')) return res(); const el = document.createElement("script"); el.src = src; el.onload = res; el.onerror = rej; document.head.appendChild(el); }); }
 
 /* ---------- 상태 ---------- */
 const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "pts", rankMonth: "",
-  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0] };
+  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], allProfiles: [], rosterUpload: null };
 let unsubMe = null, unsubAns = null, unsubChat = null;
 const approved = () => !!(S.me && S.me.status === "ok");
 
@@ -116,15 +117,16 @@ async function loadProfiles() {
 async function loadAdmin() {
   if (!S.isAdmin) return;
   try {
-    const [u, x, ok, r] = await Promise.all([
+    const [u, x, ok, r, pf] = await Promise.all([
       getDocs(query(collection(db, "users"), where("status", "==", "wait"))),
       getDocs(query(collection(db, "exchanges"), where("status", "==", "wait"))),
       getDocs(query(collection(db, "exchanges"), where("status", "==", "ok"))),
-      getDocs(collection(db, "rosters"))]);
+      getDocs(collection(db, "rosters")), getDocs(collection(db, "profiles"))]);
     S.waitUsers = u.docs.map(d => ({ id: d.id, ...d.data() }));
     S.waitEx = x.docs.map(d => ({ id: d.id, ...d.data() }));
     S.okEx = ok.docs.map(d => d.data());
-    S.rosters = {}; r.docs.forEach(d => { const v = d.data(); S.rosters[v.league] = v.nicks || []; });
+    S.rosters = {}; r.docs.forEach(d => { const v = d.data(); S.rosters[v.league] = v.teams || (v.nicks || []).map(n => ({ team: n, mgr: "" })); });
+    S.allProfiles = pf.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { toast("관리자 데이터를 못 불러왔어요: " + (e.code || e.message)); }
   render(true);
 }
@@ -291,7 +293,7 @@ function vJoin() {
     f("j-name", "이름", '<input id="j-name" autocomplete="name" placeholder="홍길동" maxlength="20">', "기프티콘 발송 확인용이에요. 다른 사람에게 안 보여요") +
     f("j-phone", "연락처", '<input id="j-phone" inputmode="numeric" autocomplete="tel" placeholder="010-0000-0000" maxlength="13">', "한 연락처당 한 계정만 가입할 수 있어요");
   if (J.type === "리그원") h += f("j-league", "리그 선택", '<select id="j-league"><option value="">리그를 골라주세요</option>' + opts + '</select>', "여러 리그에 있으면 하나만 골라주세요") +
-    f("j-nick", "판타지 앱 닉네임", '<input id="j-nick" placeholder="앱에 보이는 그대로" maxlength="20">', "판타지 앱 안의 닉네임을 그대로 적어주세요. 특수문자가 있으면 비슷하게 적어도 운영자가 확인해요");
+    f("j-nick", "판타지 앱 닉네임", '<input id="j-nick" placeholder="앱에 보이는 그대로" maxlength="20">', "야후 판타지의 팀 이름이나 매니저 이름을 그대로 적어주세요. 특수문자가 있으면 비슷하게 적어도 운영자가 확인해요");
   else h += '<div class="inv"><span class="label">초대한 리그원</span>' + f("j-league", "리그원의 리그", '<select id="j-league"><option value="">리그를 골라주세요</option>' + opts + '</select>') + f("j-inv", "리그원 닉네임", '<input id="j-inv" placeholder="초대한 사람의 판타지 앱 닉네임" maxlength="20">') + '</div>' +
     f("j-nick", "내 닉네임", '<input id="j-nick" maxlength="12" placeholder="사이트에서 쓸 닉네임">', "순위표와 채팅에 보여요");
   h += '<label class="check' + (e.agree ? ' bad' : '') + '"><input type="checkbox" id="j-agree"><span>이름·연락처를 가입 확인과 기프티콘 발송에만 쓰는 데 동의해요. 탈퇴하면 바로 삭제돼요.' + (e.agree ? '<br><b style="color:var(--bad)">동의가 필요해요</b>' : '') + '</span></label>' +
@@ -327,7 +329,18 @@ function vAdmin() {
     if (!S.waitUsers.length) h += '<p class="empty">승인 대기 중인 가입 신청이 없어요</p>';
     S.waitUsers.forEach(a => { const m = a.type === "리그원" ? matchNick(a.league, a.nick) : matchNick(a.league, a.invNick), rev = S.revealed[a.id];
       const phone = rev ? a.phone : String(a.phone).replace(/(\d{3})-(\d{2})\d{1,2}-(\d{2})\d{2}/, "$1-$2**-$3**");
-      h += '<article class="card app"><div class="app-h"><b>' + esc(a.nick) + ' <span class="sub" style="display:inline">· ' + esc(a.type) + '</span></b><span class="match ' + m.k + '">' + esc(m.t) + '</span></div>' +
+      let warn = "";
+      if (m.mgr) {
+        if (a.type === "리그원") {
+          const dup = S.allProfiles.filter(p => p.mgr === m.mgr), dupW = S.waitUsers.filter(o => o.id !== a.id && o.type === "리그원" && matchNick(o.league, o.nick).mgr === m.mgr);
+          if (dup.length) warn += '<div class="notice warn"><p><b>동일인 의심</b>매니저 「' + esc(m.mgr) + '」가 이미 「' + esc(dup[0].nick) + '」(' + esc(dup[0].league) + ')으로 가입돼 있어요</p></div>';
+          if (dupW.length) warn += '<div class="notice warn"><p><b>대기 중 중복</b>같은 매니저의 신청이 하나 더 있어요: 「' + esc(dupW[0].nick) + '」</p></div>';
+        } else {
+          const n = S.allProfiles.filter(p => p.invMgr === m.mgr).length + S.waitUsers.filter(o => o.type === "지인" && matchNick(o.league, o.invNick).mgr === m.mgr).length;
+          warn += '<div class="notice info"><p>이 리그원(매니저 「' + esc(m.mgr) + '」)이 초대한 지인: 이 신청 포함 ' + n + '명</p></div>';
+        }
+      }
+      h += '<article class="card app"><div class="app-h"><b>' + esc(a.nick) + ' <span class="sub" style="display:inline">· ' + esc(a.type) + '</span></b><span class="match ' + m.k + '">' + esc(m.t) + '</span></div>' + warn +
         '<dl class="kv"><dt>이름</dt><dd>' + esc(a.name) + '</dd><dt>연락처</dt><dd><button class="mask" data-rev="' + a.id + '">' + esc(phone) + '</button></dd><dt>리그</dt><dd>' + esc(a.league) + '</dd>' + (a.type === "지인" ? '<dt>초대 리그원</dt><dd>' + esc(a.invNick) + '</dd>' : '') + '<dt>구글</dt><dd style="word-break:break-all">' + esc(a.email) + '</dd><dt>신청</dt><dd>' + dLabel(dateKey(toDate(a.createdAt) || new Date())) + ' ' + hhmm(a.createdAt) + '</dd></dl>' +
         '<div class="row"><button class="btn line sm" data-app="' + a.id + '" data-st="no">반려</button><button class="btn pri sm" data-app="' + a.id + '" data-st="ok">승인</button></div></article>'; });
     h += '<p class="sub">닉네임은 띄어쓰기·특수문자를 빼고 리그 명단과 비교해요. 유사 판정은 직접 확인 후 승인하세요.</p>';
@@ -337,10 +350,14 @@ function vAdmin() {
     h += '<h3>처리 대기</h3>' + (S.waitEx.length ? S.waitEx.map(exCard).join("") : '<p class="empty">대기 중인 교환이 없어요</p>');
   }
   if (S.admTab === "roster") {
-    const lg = S.rosterSel;
-    h += '<section class="card form"><div class="field"><label for="rs-l">리그</label><select id="rs-l">' + LEAGUES.map(l => '<option' + (l === lg ? ' selected' : '') + '>' + esc(l) + '</option>').join("") + '</select></div><div class="field"><label for="rs-t">리그원 닉네임 (한 줄에 하나)</label><textarea id="rs-t" placeholder="판타지 앱에서 보이는 닉네임을 한 줄에 하나씩">' + esc((S.rosters[lg] || []).join("\n")) + '</textarea><span class="help">가입 신청 닉네임을 이 명단과 자동 대조해요</span></div><button class="btn pri" id="rs-save">명단 저장</button></section>';
-    h += '<section class="card"><h3>등록 현황</h3><div class="hist">' + LEAGUES.map(l => { const c = (S.rosters[l] || []).length; return '<div class="h"><span>' + esc(l) + '</span><span class="st ' + (c ? 'ok' : 'wait') + '">' + (c ? c + '명' : '미등록') + '</span></div>'; }).join("") + '</div></section>';
+    const lg = S.rosterSel, up = S.rosterUpload;
+    h += '<section class="card form"><h3>엑셀로 한 번에 등록</h3><p class="sub">리그별 시트에 팀명·매니저 표시명이 있는 엑셀을 올리면 12개 리그가 한 번에 등록돼요. 저장하면 기존 명단을 덮어써요.</p><input type="file" id="rs-file" accept=".xlsx">';
+    if (up) { const keys = Object.keys(up); h += '<div class="hist">' + keys.map(l => '<div class="h"><span>' + esc(l) + '</span><span class="st ok">' + up[l].length + '팀</span></div>').join("") + '</div>' + (keys.length ? '<button class="btn pri" id="rs-up-save">' + keys.length + '개 리그 명단 저장</button>' : '<div class="notice warn"><p>리그 이름과 같은 시트를 찾지 못했어요</p></div>'); }
+    h += '</section>';
+    h += '<section class="card form"><h3>직접 수정</h3><div class="field"><label for="rs-l">리그</label><select id="rs-l">' + LEAGUES.map(l => '<option' + (l === lg ? ' selected' : '') + '>' + esc(l) + '</option>').join("") + '</select></div><div class="field"><label for="rs-t">팀명 / 매니저 (한 줄에 한 팀)</label><textarea id="rs-t" placeholder="KB Leopards / 규범">' + esc((S.rosters[lg] || []).map(e => e.mgr ? e.team + " / " + e.mgr : e.team).join("\n")) + '</textarea><span class="help">가입 신청 닉네임을 팀명과 매니저 이름 둘 다와 대조해요</span></div><button class="btn line" id="rs-save">이 리그만 저장</button></section>';
+    h += '<section class="card"><h3>등록 현황</h3><div class="hist">' + LEAGUES.map(l => { const c = (S.rosters[l] || []).length; return '<div class="h"><span>' + esc(l) + '</span><span class="st ' + (c ? 'ok' : 'wait') + '">' + (c ? c + '팀' : '미등록') + '</span></div>'; }).join("") + '</div></section>';
   }
+
   return h;
 }
 function exCard(x) { return '<article class="card app"><div class="app-h"><b class="num" style="font-size:18px">' + esc(x.code) + '</b><span class="st ' + x.status + '">' + ({ wait: "발송 대기", ok: "발송 완료", no: "반려" })[x.status] + '</span></div><dl class="kv"><dt>닉네임</dt><dd>' + esc(x.nick) + '</dd><dt>교환</dt><dd>' + (x.tier === "s" ? "모았다가 한번에!" : "바로 써버리기~") + ' · ' + fmt(x.won) + '원 상당 (' + fmt(x.pts) + 'P)</dd><dt>신청</dt><dd>' + dLabel(dateKey(toDate(x.at) || new Date())) + ' ' + hhmm(x.at) + '</dd></dl>' + (x.status === "wait" ? '<div class="row"><button class="btn line sm" data-x="' + esc(x.code) + '" data-xs="no">반려 · 환불</button><button class="btn pri sm" data-x="' + esc(x.code) + '" data-xs="ok">발송 완료</button></div>' : '') + '</article>'; }
@@ -446,7 +463,8 @@ async function approve(uid, st) {
   const a = S.waitUsers.find(x => x.id === uid); if (!a) return;
   try {
     const b = writeBatch(db); b.update(doc(db, "users", uid), { status: st, decidedAt: serverTimestamp() });
-    if (st === "ok") b.set(doc(db, "profiles", uid), { nick: a.nick, league: a.league, m: {} });
+    const mm = a.type === "리그원" ? matchNick(a.league, a.nick) : matchNick(a.league, a.invNick);
+    if (st === "ok") b.set(doc(db, "profiles", uid), { nick: a.nick, league: a.league, m: {}, mgr: a.type === "리그원" ? mm.mgr : "", invMgr: a.type === "지인" ? mm.mgr : "" });
     else b.delete(doc(db, "phones", a.phone));
     await b.commit(); toast(a.nick + (st === "ok" ? " 승인" : " 반려")); loadAdmin();
   } catch (e) { toast("실패: " + (e.code || e.message)); }
@@ -458,6 +476,30 @@ async function settleEx(code, st) {
     if (st === "no") { b.update(doc(db, "users", x.uid), { points: increment(x.pts) }); b.set(doc(collection(db, "ledger")), { uid: x.uid, p: x.pts, t: "교환 반려 환불 (" + code + ")", at: serverTimestamp() }); }
     await b.commit(); toast(st === "ok" ? "발송 완료 처리" : "반려 · " + fmt(x.pts) + "P 환불"); S.found = null; loadAdmin();
   } catch (e) { toast("실패: " + (e.code || e.message)); }
+}
+
+async function saveRosters(map) {
+  try {
+    const b = writeBatch(db);
+    Object.keys(map).forEach(l => { const teams = map[l], nicks = [...new Set(teams.flatMap(e => [e.team, e.mgr]).filter(Boolean))];
+      b.set(doc(db, "rosters", "L" + LEAGUES.indexOf(l)), { league: l, teams, nicks }); S.rosters[l] = teams; });
+    await b.commit(); render(true);
+  } catch (e) { toast("저장 실패: " + (e.code || e.message)); throw e; }
+}
+async function parseRosterFile(file) {
+  try {
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+    const wb = window.XLSX.read(await file.arrayBuffer(), { type: "array" }), out = {};
+    wb.SheetNames.forEach(name => {
+      const lg = LEAGUES.find(l => l.trim() === String(name).trim()); if (!lg) return;
+      const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "" });
+      const hi = rows.findIndex(r => r.some(c => String(c).trim() === "팀 ID")); if (hi < 0) return;
+      const tc = rows[hi].findIndex(c => String(c).trim() === "팀명"), mc = rows[hi].findIndex(c => String(c).trim() === "매니저 표시명"); if (tc < 0) return;
+      const teams = []; for (let i = hi + 1; i < rows.length; i++) { const t = String(rows[i][tc] || "").trim(); if (!t) continue; teams.push({ team: t, mgr: mc >= 0 ? String(rows[i][mc] || "").trim() : "" }); }
+      if (teams.length) out[lg] = teams;
+    });
+    S.rosterUpload = out; render(true);
+  } catch (e) { toast("엑셀을 읽지 못했어요: " + (e.message || e)); }
 }
 
 /* ---------- 시트·토스트 ---------- */
@@ -492,10 +534,11 @@ document.addEventListener("click", ev => {
   if (b.dataset.grade) { grade(b.dataset.grade); return; }
   if (b.id === "qz-open") { openQuiz(); return; }
   if (b.dataset.x) { b.disabled = true; settleEx(b.dataset.x, b.dataset.xs); return; }
-  if (b.id === "rs-save") { const l = document.getElementById("rs-l").value, nicks = document.getElementById("rs-t").value.split("\n").map(s => s.trim()).filter(Boolean);
-    setDoc(doc(db, "rosters", "L" + LEAGUES.indexOf(l)), { league: l, nicks }).then(() => { S.rosters[l] = nicks; toast(l + " 명단 " + nicks.length + "명 저장"); render(true); }, e => toast("실패: " + (e.code || e.message))); return; }
+  if (b.id === "rs-save") { const l = document.getElementById("rs-l").value, teams = document.getElementById("rs-t").value.split("\n").map(x => x.trim()).filter(Boolean).map(x => { const p = x.split(" / "); return { team: p[0].trim(), mgr: (p[1] || "").trim() }; });
+    saveRosters({ [l]: teams }).then(() => toast(l + " 명단 " + teams.length + "팀 저장")); return; }
+  if (b.id === "rs-up-save") { b.disabled = true; saveRosters(S.rosterUpload).then(() => { toast(Object.keys(S.rosterUpload).length + "개 리그 명단 저장 완료"); S.rosterUpload = null; render(true); }); return; }
 });
-document.addEventListener("change", ev => { if (ev.target.id === "rk-m") { S.rankMonth = ev.target.value; render(true); return; } if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
+document.addEventListener("change", ev => { if (ev.target.id === "rs-file" && ev.target.files[0]) { parseRosterFile(ev.target.files[0]); return; } if (ev.target.id === "rk-m") { S.rankMonth = ev.target.value; render(true); return; } if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
 document.addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target.dataset && ev.target.dataset.ans) { ev.preventDefault(); const bt = document.querySelector('[data-sub="' + ev.target.dataset.ans + '"]'); if (bt && !bt.disabled) bt.click(); } });
 document.addEventListener("input", ev => {
   const t = ev.target;
