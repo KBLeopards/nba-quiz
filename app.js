@@ -139,7 +139,7 @@ const ICON = {
   admin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
   join: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="8" r="4"/><path d="M3 20c0-4 3-6 7-6s7 2 7 6M19 8v6M16 11h6"/></svg>' };
 function tabsFor() {
-  if (S.isAdmin) return [["admin", "운영"], ["home", "퀴즈"], ["chat", "채팅"], ["rank", "순위"], ["notice", "공지"]];
+  if (S.isAdmin) return [["admin", "운영"], ["home", "퀴즈"], ["chat", "채팅"], ["rank", "순위"], approved() ? ["wallet", "포인트"] : ["join", "가입"], ["notice", "공지"]];
   if (approved()) return [["home", "퀴즈"], ["rank", "순위"], ["chat", "채팅"], ["wallet", "포인트"], ["notice", "공지"]];
   return [["home", "퀴즈"], ["rank", "순위"], ["chat", "채팅"], ["join", S.user ? "가입" : "로그인"], ["notice", "공지"]];
 }
@@ -161,7 +161,7 @@ const gradedCount = () => S.quiz ? Object.keys(S.quiz.graded || {}).length : 0;
 function statusBanner() {
   if (S.user === null || (!S.user)) return '<div class="notice info"><p><b>구글 계정으로 시작해요</b>KB Leopards 리그원과 지인만 참여할 수 있어요. 로그인 후 가입 신청을 해주세요.</p></div><button class="btn pri" data-login>Google로 시작하기</button>';
   if (S.me === undefined) return '<p class="sub">불러오는 중…</p>';
-  if (S.me === null && !S.isAdmin) return '<div class="notice info"><p><b>가입 신청을 마쳐주세요</b>리그와 판타지 앱 닉네임을 알려주시면 운영자가 확인 후 승인해요.</p></div><button class="btn pri" data-go="join">가입 신청하기</button>';
+  if (S.me === null) return '<div class="notice info"><p><b>가입 신청을 마쳐주세요</b>리그와 판타지 앱 닉네임을 알려주시면 운영자가 확인 후 승인해요.</p></div><button class="btn pri" data-go="join">가입 신청하기</button>';
   if (S.me && S.me.status === "wait") return '<div class="notice warn"><p><b>승인 대기 중</b>운영자가 리그 명단과 닉네임을 확인하고 있어요. 보통 하루 안에 처리돼요.</p></div>';
   if (S.me && S.me.status === "no") return '<div class="notice warn"><p><b>가입이 승인되지 않았어요</b>궁금한 점은 카톡으로 문의해 주세요.</p></div><a class="btn kakao" href="' + KAKAO + '" target="_blank" rel="noopener">카카오톡 문의하기</a>';
   return "";
