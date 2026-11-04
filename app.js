@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, setDoc, updateDoc, collection, query, where, orderBy, limit, getDocs, onSnapshot, writeBatch, serverTimestamp, increment, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy, limit, getDocs, onSnapshot, writeBatch, serverTimestamp, increment, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 /* ---------- 설정 ---------- */
@@ -106,7 +106,7 @@ function loadScript(src) { return new Promise((res, rej) => { if (document.query
 
 /* ---------- 상태 ---------- */
 const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "pts", rankMonth: "",
-  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), autoInfo: {}, autoMsg: "", members: null, memQ: "", memF: "all", allProfiles: [], rosterUpload: null };
+  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), autoInfo: {}, autoMsg: "", members: null, memQ: "", memF: "all", hist: null, histSel: null, histQuiz: null, histAns: null, roomDate: null, allProfiles: [], rosterUpload: null };
 let unsubMe = null, unsubAns = null, unsubChat = null;
 const approved = () => !!(S.me && S.me.status === "ok");
 
@@ -131,8 +131,8 @@ function watchAnswers() {
 }
 function watchChat() {
   if (unsubChat) { unsubChat(); unsubChat = null; } S.chat = [];
-  if (!S.room || !S.quiz) return;
-  unsubChat = onSnapshot(query(collection(db, "chats", S.quiz.date + "_" + S.room, "msgs"), orderBy("at", "asc"), limit(200)), s => {
+  const cd = S.roomDate || (S.quiz && S.quiz.date); if (!S.room || !cd) return;
+  unsubChat = onSnapshot(query(collection(db, "chats", cd + "_" + S.room, "msgs"), orderBy("at", "asc"), limit(200)), s => {
     S.chat = s.docs.map(d => d.data()); if (S.tab === "chat") render(true); window.scrollTo(0, document.body.scrollHeight);
   }, () => { S.chat = []; render(true); });
 }
@@ -183,11 +183,11 @@ function tabsFor() {
   return [["home", "퀴즈"], ["rank", "순위"], ["chat", "채팅"], ["join", S.user ? "가입" : "로그인"], ["notice", "공지"]];
 }
 function renderTabs() {
-  const ts = tabsFor(); if (!ts.some(t => t[0] === S.tab)) S.tab = ts[0][0];
+  const ts = tabsFor(), cur = S.tab === "hist" ? "home" : S.tab; if (!ts.some(t => t[0] === cur)) S.tab = ts[0][0];
   const unsub = S.quiz && quizOpen() && approved() && QUIZ.some(q => !(S.ans && S.ans.sub && S.ans.sub[q.id]));
   document.getElementById("tabs").innerHTML = ts.map(t => {
     const dot = (t[0] === "home" && unsub) || (t[0] === "admin" && (S.waitUsers.length + S.waitEx.length) > 0);
-    return '<button data-tab="' + t[0] + '"' + (S.tab === t[0] ? ' aria-current="page"' : '') + '>' + ICON[t[0]] + '<span>' + t[1] + '</span>' + (dot ? '<i class="dot"></i>' : '') + '</button>'; }).join("");
+    return '<button data-tab="' + t[0] + '"' + ((S.tab === "hist" ? "home" : S.tab) === t[0] ? ' aria-current="page"' : '') + '>' + ICON[t[0]] + '<span>' + t[1] + '</span>' + (dot ? '<i class="dot"></i>' : '') + '</button>'; }).join("");
   const hp = document.getElementById("hdr-pts");
   if (approved()) { hp.hidden = false; hp.innerHTML = '<span class="num">' + fmt(S.me.points) + '</span> P'; hp.dataset.go = "wallet"; }
   else if (!S.user) { hp.hidden = false; hp.textContent = "로그인"; hp.dataset.go = "join"; }
@@ -238,6 +238,7 @@ function vHome() {
       buildQuiz(S.prev).map((q, i) => { const st = (S.prev.stats || {})[q.id] || {}; const rate = st.sub ? Math.round(st.right / st.sub * 100) + "%" : "-";
         return '<tr><td>' + esc(q.q.replace(/^오늘(의)? /, "").replace(/\?$/, "")) + '</td><td><b>' + esc(String((S.prev.keys || {})[q.id] || "-").split(",")[0]) + '</b></td><td class="r num">' + rate + '</td></tr>'; }).join("") + '</tbody></table></div></section>';
   }
+  if (S.prev) h += '<button class="btn line" data-gohist>지난 퀴즈 전체 보기</button>';
   return h;
 }
 
@@ -264,23 +265,61 @@ function vRank() {
 }
 
 /* ---------- CHAT ---------- */
-function canRoom(id) { return S.isAdmin || (approved() && S.ans && S.ans.sub && S.ans.sub[id]); }
+function roomCtx() { const past = !!(S.roomDate && (!S.quiz || S.roomDate !== S.quiz.date)); return { past, quiz: past ? S.histQuiz : S.quiz, ans: past ? S.histAns : S.ans }; }
+function canRoomIn(ctx, id) { return S.isAdmin || (approved() && ctx.ans && ctx.ans.sub && ctx.ans.sub[id]); }
+function canRoom(id) { return canRoomIn(roomCtx(), id); }
 function vChat() {
-  if (!S.quiz) return '<h2>문항별 채팅방</h2><p class="empty">퀴즈가 열리면 채팅방도 열려요</p>';
-  if (S.room && canRoom(S.room)) {
-    const q = qById(S.room), i = QUIZ.indexOf(q), me = S.user && S.user.uid;
-    let h = '<div class="room-top"><button class="btn line sm" data-room="0" aria-label="채팅방 목록">← 목록</button><div style="min-width:0"><b>' + (i + 1) + '번 채팅방</b><p class="sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(q.q) + '</p></div></div><div class="chat"><div class="sys">이 문항을 제출한 사람만 있어요 · 욕설·도배·광고 금지</div>';
-    if (!S.chat.length) h += '<p class="empty">첫 메시지를 남겨보세요</p>';
+  const ctx = roomCtx();
+  if (S.room && ctx.quiz && canRoomIn(ctx, S.room)) {
+    const qs = buildQuiz(ctx.quiz), q = qs.find(x => x.id === S.room), i = qs.indexOf(q), me = S.user && S.user.uid;
+    let h = '<div class="room-top"><button class="btn line sm" ' + (ctx.past ? 'data-back-hist' : 'data-room="0"') + ' aria-label="뒤로">← ' + (ctx.past ? '지난 퀴즈' : '목록') + '</button><div style="min-width:0"><b>' + (ctx.past ? dLabel(ctx.quiz.date) + ' · ' : '') + (i + 1) + '번 채팅방</b><p class="sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(q.q) + '</p></div></div><div class="chat"><div class="sys">' + (ctx.past ? '지난 채팅방 · 읽기 전용' : '이 문항을 제출한 사람만 있어요 · 욕설·도배·광고 금지') + '</div>';
+    if (!S.chat.length) h += '<p class="empty">' + (ctx.past ? '이 채팅방엔 대화가 없었어요' : '첫 메시지를 남겨보세요') + '</p>';
     S.chat.forEach(c => { const mine = c.uid === me;
       h += '<div class="msg' + (mine ? ' mine' : '') + '"><span class="meta">' + (mine ? '나' : esc(c.nick) + '<em>' + esc(c.league) + '</em>') + ' · ' + hhmm(c.at) + '</span><div class="bub">' + esc(c.m) + '</div></div>'; });
     return h + '</div><div style="height:60px"></div>';
   }
+  if (!S.quiz) return '<h2>문항별 채팅방</h2><p class="empty">퀴즈가 열리면 채팅방도 열려요</p><button class="btn line" data-gohist>지난 퀴즈 채팅방 보기</button>';
   let h = '<div class="sect-h"><h2>문항별 채팅방</h2><span class="sub">' + dLabel(S.quiz.date) + '</span></div><p class="sub">채팅방은 문항마다 따로 있어요. 그 문항을 제출해야 들어갈 수 있어서, 아직 안 낸 사람에게 정답이 새지 않아요.</p>';
-  QUIZ.forEach((q, i) => { const ok = canRoom(q.id);
+  QUIZ.forEach((q, i) => { const ok = canRoomIn({ ans: S.ans }, q.id);
     h += '<button class="card room' + (ok ? '' : ' locked') + '" data-room="' + q.id + '"' + (ok ? '' : ' disabled') + '><span class="q-no">' + (i + 1) + '</span><span class="rinfo"><b>' + esc(q.q) + '</b><small>' + (ok ? '들어가서 이야기 나누기' : '이 문항을 제출하면 열려요') + '</small></span><em>' + (ok ? '입장' : '잠김') + '</em></button>'; });
+  h += '<button class="btn line" data-gohist>지난 퀴즈 채팅방 보기</button>';
   return h + (approved() || S.isAdmin ? '' : statusBanner());
 }
-const composer = () => S.tab === "chat" && S.room && canRoom(S.room) ? '<form class="composer" id="cform"><div class="wrap"><input id="cin" maxlength="200" placeholder="메시지 입력" autocomplete="off" aria-label="메시지"><button>보내기</button></div></form>' : '';
+
+/* ---------- 지난 퀴즈 ---------- */
+async function loadHistory() {
+  try { const s = await getDocs(query(collection(db, "quizzes"), orderBy("date", "desc"), limit(120))); S.hist = s.docs.map(d => d.data()).filter(q => !S.quiz || q.date !== S.quiz.date); }
+  catch (e) { S.hist = []; toast("지난 퀴즈를 못 불러왔어요"); }
+  render(true);
+}
+async function openHist(date) {
+  S.histSel = date; S.histQuiz = (S.hist || []).find(q => q.date === date) || null; S.histAns = null; render();
+  if (S.user) { try { const d = await getDoc(doc(db, "answers", date + "_" + S.user.uid)); S.histAns = d.exists() ? d.data() : null; } catch (e) {} }
+  render(true);
+}
+function vHist() {
+  if (S.hist === null) { loadHistory(); return '<h2>지난 퀴즈</h2><p class="sub">불러오는 중…</p>'; }
+  if (S.histSel && S.histQuiz) {
+    const Q = S.histQuiz, qs = buildQuiz(Q), A = S.histAns, sub = id => !!(A && A.sub && A.sub[id]);
+    const right = qs.filter(q => A && A.res && A.res[q.id]).length, all = qs.every(q => sub(q.id));
+    const pts = (Q.partPaid && all ? RULE.part : 0) + right * RULE.qpts + (right === qs.length ? RULE.bonus : 0);
+    let h = '<div class="room-top"><button class="btn line sm" data-hist-list>← 목록</button><div><b>' + dLabel(Q.date) + ' 퀴즈</b><p class="sub">' + ((Q.games || []).length ? Q.games.length + '경기' : '') + '</p></div></div>';
+    if (S.user && approved()) h += '<section class="wallet-hero"><span class="label" style="color:#CFC3EE">내 결과</span><div class="big">' + right + '<small>/ ' + qs.length + ' 정답</small></div><span style="font-size:13px;color:#CFC3EE">' + (A ? '이날 받은 포인트 ' + fmt(pts) + 'P' + (all ? ' · 5문항 모두 제출' : ' · 제출 ' + qs.filter(q => sub(q.id)).length + '문항') : '이날은 참여하지 않았어요') + '</span></section>';
+    qs.forEach((q, i) => { const st = (Q.stats || {})[q.id] || {}, g = Q.graded && Q.graded[q.id], my = A && A.a ? A.a[q.id] : "", ok = A && A.res && A.res[q.id];
+      const rate = st.sub ? Math.round(st.right / st.sub * 100) + "%" : "-", room = S.isAdmin || (approved() && sub(q.id));
+      h += '<article class="card q"><div class="q-head"><span class="q-no">' + (i + 1) + '</span><span class="sub">정답률 ' + rate + (st.sub ? ' (' + st.right + '/' + st.sub + '명)' : '') + '</span></div><p class="q-text">' + esc(q.q) + '</p>' +
+        '<div class="res ' + (!g ? 'n' : ok ? 'y' : 'n') + '"><span>' + (!g ? '미확정' : !sub(q.id) ? '미제출' : ok ? '정답' : '오답') + '</span><div>' + (sub(q.id) ? '내 답 <b>' + esc(my) + '</b><br>' : '') + '정답 <b>' + esc(g ? String(Q.keys[q.id] || "") : "-") + '</b></div></div>' +
+        '<button class="room-link' + (room ? '' : ' locked') + '" data-hroom="' + q.id + '"' + (room ? '' : ' disabled') + '>' + ICON.chat + '<span>' + (i + 1) + '번 채팅방 기록</span><em>' + (room ? '보기' : '제출한 문항만') + '</em></button></article>'; });
+    return h;
+  }
+  let h = '<div class="sect-h"><h2>지난 퀴즈</h2><button class="btn line sm" data-tab="home">← 오늘 퀴즈</button></div>';
+  if (!S.hist.length) return h + '<p class="empty">아직 지난 퀴즈가 없어요</p>';
+  h += '<section class="card" style="padding:4px 14px"><div class="hist">' + S.hist.map(q => { const st = q.stats || {}, n = Object.keys(q.graded || {}).length, ppl = Math.max(0, ...Object.values(st).map(x => x.sub || 0));
+    return '<button class="h hrow" data-hist="' + q.date + '"><div><b>' + dLabel(q.date) + '</b><small>' + ((q.games || []).length ? q.games.length + '경기 · ' : '') + '참여 ' + ppl + '명</small></div><span class="st ' + (n === 5 ? 'ok' : 'wait') + '">' + (n === 5 ? '결과 확정' : '채점 ' + n + '/5') + '</span></button>'; }).join("") + '</div></section>';
+  return h;
+}
+
+const composer = () => S.tab === "chat" && S.room && !roomCtx().past && canRoom(S.room) ? '<form class="composer" id="cform"><div class="wrap"><input id="cin" maxlength="200" placeholder="메시지 입력" autocomplete="off" aria-label="메시지"><button>보내기</button></div></form>' : '';
 
 /* ---------- WALLET ---------- */
 function vWallet() {
@@ -642,14 +681,19 @@ function selectCode() { const el = document.getElementById("the-code"); if (!el)
 
 document.addEventListener("click", ev => {
   const b = ev.target.closest("button,a"); if (!b) { if (ev.target.id === "scrim") closeSheet(); return; }
-  if (b.dataset.tab) { S.tab = b.dataset.tab; if (S.tab === "chat") { S.room = 0; watchChat(); } if (S.tab === "wallet") loadWallet(); if (S.tab === "rank") S.profiles = null; if (S.tab === "admin") loadAdmin(); render(); return; }
+  if (b.dataset.tab) { S.tab = b.dataset.tab; if (S.tab === "chat") { S.room = 0; S.roomDate = null; watchChat(); } if (S.tab === "wallet") loadWallet(); if (S.tab === "rank") S.profiles = null; if (S.tab === "admin") loadAdmin(); render(); return; }
   if (b.dataset.go) { S.tab = b.dataset.go; if (S.tab === "wallet") loadWallet(); render(); return; }
   if (b.hasAttribute("data-login")) { login(); return; }
   if (b.hasAttribute("data-logout")) { signOut(auth); S.tab = "home"; return; }
   if (b.id === "hdr-ask") { askSheet(); return; }
   if (b.hasAttribute("data-close")) { closeSheet(); return; }
   if (b.dataset.sub) { submitAnswer(b.dataset.sub); return; }
-  if (b.dataset.room !== undefined) { S.room = +b.dataset.room; S.tab = "chat"; watchChat(); render(); return; }
+  if (b.dataset.room !== undefined) { S.room = +b.dataset.room; S.roomDate = null; S.tab = "chat"; watchChat(); render(); return; }
+  if (b.hasAttribute("data-gohist")) { S.tab = "hist"; S.hist = null; S.histSel = null; render(); return; }
+  if (b.dataset.hist) { openHist(b.dataset.hist); return; }
+  if (b.hasAttribute("data-hist-list")) { S.histSel = null; render(); return; }
+  if (b.dataset.hroom) { S.roomDate = S.histSel; S.room = +b.dataset.hroom; S.tab = "chat"; watchChat(); render(); return; }
+  if (b.hasAttribute("data-back-hist")) { S.room = 0; S.roomDate = null; if (unsubChat) { unsubChat(); unsubChat = null; } S.tab = "hist"; render(); return; }
   if (b.dataset.rt) { S.rankTab = b.dataset.rt; render(true); return; }
   if (b.dataset.tier) { confirmTier(b.dataset.tier); return; }
   if (b.id === "do-ex") { b.disabled = true; doExchange(b.dataset.t); return; }
@@ -705,7 +749,7 @@ function render(keepScroll) {
   if (S.tab === "chat" && S.room) window.scrollTo(0, document.body.scrollHeight); else if (keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
 }
 function doRender() {
-  const v = { home: vHome, rank: vRank, chat: vChat, wallet: vWallet, notice: vNotice, join: vJoin, admin: vAdmin }[S.tab] || vHome;
+  const v = { hist: vHist, home: vHome, rank: vRank, chat: vChat, wallet: vWallet, notice: vNotice, join: vJoin, admin: vAdmin }[S.tab] || vHome;
   document.getElementById("view").innerHTML = v() + composer();
   if (S.tab === "admin" && S.admTab === "dash") simCalc();
   if (S.tab === "notice" && window.QRCode) { try { new QRCode(document.getElementById("qrbox"), { text: KAKAO, width: 96, height: 96, colorDark: "#1C1133", colorLight: "#ffffff" }); } catch (e) {} }
