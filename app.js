@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy, limit, getDocs, onSnapshot, writeBatch, serverTimestamp, increment, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy, limit, getDocs, onSnapshot, writeBatch, serverTimestamp, increment, Timestamp, getCountFromServer } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 /* ---------- 설정 ---------- */
@@ -124,7 +124,15 @@ onAuthStateChanged(auth, u => {
 onSnapshot(query(collection(db, "quizzes"), orderBy("date", "desc"), limit(2)), s => {
   const list = s.docs.map(d => d.data()); S.quiz = list[0] || null; S.prev = list[1] || null; QUIZ = buildQuiz(S.quiz); watchAnswers(); render(true);
 });
-let unsubMeta = null;
+async function refreshCounts() {
+  if (!S.user || !S.quiz || document.visibilityState === "hidden") return;
+  const d = S.quiz.date; let changed = false;
+  for (const q of QUIZ) { if (!canRoomIn({ ans: S.ans }, q.id)) continue;
+    try { const c = (await getCountFromServer(collection(db, "chats", d + "_" + q.id, "msgs"))).data().count; if (S.meta[q.id] !== c) { S.meta[q.id] = c; changed = true; } } catch (e) {} }
+  if (changed && S.quiz && S.quiz.date === d) render(true);
+}
+setInterval(refreshCounts, 60000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshCounts(); });
 const lrKey = (d, q) => "nq-lr-" + d + "_" + q;
 function getLr(d, q) { try { return +(localStorage.getItem(lrKey(d, q)) || 0); } catch (e) { return 0; } }
 function setLr(d, q, n) { try { localStorage.setItem(lrKey(d, q), String(n)); } catch (e) {} }
@@ -134,16 +142,15 @@ function anyUnread() { return QUIZ.some(q => unread(q.id) > 0); }
 const badge = n => n > 0 ? '<i class="badge-n">' + (n > 99 ? "99+" : n) + '</i>' : '';
 function watchAnswers() {
   if (unsubAns) { unsubAns(); unsubAns = null; } S.ans = null;
-  if (unsubMeta) { unsubMeta(); unsubMeta = null; } S.meta = {};
+  S.meta = {};
   if (!S.user || !S.quiz) return;
-  unsubMeta = onSnapshot(doc(db, "chatmeta", S.quiz.date), s => { S.meta = (s.exists() && s.data().c) || {}; render(true); }, () => {});
-  unsubAns = onSnapshot(doc(db, "answers", S.quiz.date + "_" + S.user.uid), s => { S.ans = s.exists() ? s.data() : null; render(true); }, () => {});
+  unsubAns = onSnapshot(doc(db, "answers", S.quiz.date + "_" + S.user.uid), s => { S.ans = s.exists() ? s.data() : null; render(true); refreshCounts(); }, () => {});
 }
 function watchChat() {
   if (unsubChat) { unsubChat(); unsubChat = null; } S.chat = [];
   const cd = S.roomDate || (S.quiz && S.quiz.date); if (!S.room || !cd) return;
   unsubChat = onSnapshot(query(collection(db, "chats", cd + "_" + S.room, "msgs"), orderBy("at", "asc"), limit(200)), s => {
-    S.chat = s.docs.map(d => d.data()); if (S.tab === "chat") render(true); window.scrollTo(0, document.body.scrollHeight);
+    S.chat = s.docs.map(d => d.data()); if (!S.roomDate && S.quiz && cd === S.quiz.date) S.meta[S.room] = Math.max(S.meta[S.room] || 0, S.chat.length); if (S.tab === "chat") render(true); window.scrollTo(0, document.body.scrollHeight);
   }, () => { S.chat = []; render(true); });
 }
 async function loadWallet() {
@@ -523,7 +530,7 @@ async function submitAnswer(id) {
 async function sendChat(m) {
   try { await setDoc(doc(collection(db, "chats", S.quiz.date + "_" + S.room, "msgs")), { uid: S.user.uid, nick: S.isAdmin && !approved() ? "운영자" : S.me.nick, league: S.isAdmin && !approved() ? "운영" : S.me.league, m, at: serverTimestamp() }); }
   catch (e) { toast("전송 실패: " + (e.code || e.message)); return; }
-  try { await setDoc(doc(db, "chatmeta", S.quiz.date), { c: { [S.room]: increment(1) } }, { merge: true }); } catch (e) { console.warn("chatmeta", e.code); }
+
 }
 async function joinSubmit() {
   const g = id => { const e = document.getElementById(id); return e ? e.value.trim() : ""; }, err = {};

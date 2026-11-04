@@ -39,7 +39,6 @@ allow read: if admin() || (A() && resource.data.uid == U());
 allow create: if ok() && N().uid == U() && N().code == code && N().status == 'wait' && N().at == request.time && ((N().tier == 'b' && N().pts == 2000 && N().won == 2000) || (N().tier == 's' && N().pts == 5000 && N().won == 5000)) && request.time > me().createdAt + duration.value(14, 'd') && getAfter(P('users', U())).data.points == me().points - N().pts && getAfter(P('users', U())).data.lastEx == code;
 allow update, delete: if admin();
 }
-match /chatmeta/{d} { allow read: if A(); allow write: if admin() || ok(); }
 match /ledger/{id} {
 allow read: if admin() || (A() && resource.data.uid == U());
 allow write: if admin();
