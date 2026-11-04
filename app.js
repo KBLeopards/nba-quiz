@@ -11,13 +11,48 @@ const RULE = { budget: 50000, minDays: 14, bonus: 10,
   tiers: [{ id: "b", name: "바로 써버리기~", pts: 2000, won: 2000, desc: "2,000원 상당 · 편의점·저가 커피" },
           { id: "s", name: "모았다가 한번에!", pts: 5000, won: 5000, desc: "5,000원 상당 · 커피 전문점" }] };
 const NAME_RE = /^[A-Za-z][A-Za-z'.\-]*(\s+[A-Za-z][A-Za-z'.\-]*)+$/;
-const QUIZ = [
-  { id: 1, q: "오늘의 득점 1위 선수는?", pts: 15, fx: "Victor Wembanyama", rule: "선수 영문 풀네임 (이름 성)", re: NAME_RE, name: true },
-  { id: 2, q: "오늘의 어시스트 1위 선수는?", pts: 15, fx: "James Harden", rule: "선수 영문 풀네임 (이름 성)", re: NAME_RE, name: true },
-  { id: 3, q: "두 팀 득점 합이 가장 높은 경기는?", pts: 15, fx: "POR SAS", rule: "두 팀 영문 약자, 띄어쓰기로 구분 (순서 상관없음)", re: /^[A-Za-z]{2,3}\s+[A-Za-z]{2,3}$/, pair: true },
-  { id: 4, q: "오늘 득점이 가장 적은 팀은?", pts: 15, fx: "UTA", rule: "팀 영문 약자 3글자", re: /^[A-Za-z]{3}$/ },
-  { id: 5, q: "오늘의 리바운드 1위 선수는?", pts: 15, fx: "Ivica Zubac", rule: "선수 영문 풀네임 (이름 성)", re: NAME_RE, name: true }];
-const MAXP = QUIZ.reduce((a, q) => a + q.pts, 0) + RULE.bonus;
+const F = {
+  name: { re: NAME_RE, rule: "선수 영문 풀네임 (이름 성)", name: true },
+  team: { re: /^[A-Za-z]{3}$/, rule: "팀 영문 약자 3글자" },
+  pair: { re: /^[A-Za-z]{2,3}\s+[A-Za-z]{2,3}$/, rule: "두 팀 영문 약자, 띄어쓰기로 구분 (순서 상관없음)", pair: true },
+  num: { re: /^\d{1,3}$/, rule: "숫자만 · 가장 가까운 사람이 정답", num: true } };
+const CATS = ["선수", "팀", "경기", "숫자"];
+const LV = { 1: "기본", 2: "중간", 3: "어려움" };
+const BANK = {
+  pts: { c: "선수", lv: 1, f: "name", q: "오늘의 득점 1위 선수는?", fx: "Victor Wembanyama" },
+  ast: { c: "선수", lv: 1, f: "name", q: "오늘의 어시스트 1위 선수는?", fx: "James Harden" },
+  reb: { c: "선수", lv: 1, f: "name", q: "오늘의 리바운드 1위 선수는?", fx: "Ivica Zubac" },
+  tpm: { c: "선수", lv: 2, f: "name", q: "오늘의 3점슛 성공 1위 선수는?", fx: "Stephen Curry" },
+  stl: { c: "선수", lv: 2, f: "name", q: "오늘의 스틸 1위 선수는?", fx: "Jalen Suggs" },
+  blk: { c: "선수", lv: 2, f: "name", q: "오늘의 블록 1위 선수는?", fx: "Victor Wembanyama" },
+  oreb: { c: "선수", lv: 2, f: "name", q: "오늘의 공격 리바운드 1위 선수는?", fx: "Evan Mobley" },
+  fgm: { c: "선수", lv: 2, f: "name", q: "오늘의 야투 성공 1위 선수는?", fx: "Nikola Jokic" },
+  min: { c: "선수", lv: 2, f: "name", q: "오늘 출전 시간이 가장 긴 선수는?", fx: "Deni Avdija" },
+  ftm: { c: "선수", lv: 3, f: "name", q: "오늘의 자유투 성공 1위 선수는?", fx: "James Harden" },
+  tov: { c: "선수", lv: 3, f: "name", q: "오늘 턴오버가 가장 많은 선수는?", fx: "James Harden" },
+  pm: { c: "선수", lv: 3, f: "name", q: "오늘의 +/- 1위 선수는?", fx: "Evan Mobley" },
+  bench: { c: "선수", lv: 3, f: "name", q: "오늘 벤치 출전 선수 중 득점 1위는?", fx: "Andrew Nembhard" },
+  thi: { c: "팀", lv: 1, f: "team", q: "오늘 득점이 가장 많은 팀은?", fx: "OKC" },
+  tlo: { c: "팀", lv: 1, f: "team", q: "오늘 득점이 가장 적은 팀은?", fx: "UTA" },
+  t3: { c: "팀", lv: 2, f: "team", q: "오늘 3점슛 성공이 가장 많은 팀은?", fx: "BOS" },
+  treb: { c: "팀", lv: 2, f: "team", q: "오늘 리바운드가 가장 많은 팀은?", fx: "CLE" },
+  tast: { c: "팀", lv: 2, f: "team", q: "오늘 어시스트가 가장 많은 팀은?", fx: "DEN" },
+  ttov: { c: "팀", lv: 3, f: "team", q: "오늘 턴오버가 가장 많은 팀은?", fx: "WAS" },
+  bigw: { c: "팀", lv: 3, f: "team", q: "오늘 가장 큰 점수 차로 이긴 팀은?", fx: "OKC" },
+  ghi: { c: "경기", lv: 1, f: "pair", q: "두 팀 득점 합이 가장 높은 경기는?", fx: "POR SAS" },
+  glo: { c: "경기", lv: 2, f: "pair", q: "두 팀 득점 합이 가장 낮은 경기는?", fx: "CLE OKC" },
+  gcl: { c: "경기", lv: 3, f: "pair", q: "점수 차가 가장 적은 경기는?", fx: "MIL BOS" },
+  npts: { c: "숫자", lv: 3, f: "num", q: "오늘 득점 1위 선수는 몇 점을 넣을까?", fx: "38" },
+  nast: { c: "숫자", lv: 3, f: "num", q: "오늘 어시스트 1위 선수의 어시스트 개수는?", fx: "13" },
+  nreb: { c: "숫자", lv: 3, f: "num", q: "오늘 리바운드 1위 선수의 리바운드 개수는?", fx: "16" },
+  nthi: { c: "숫자", lv: 3, f: "num", q: "오늘 득점 1위 팀의 득점은?", fx: "132" },
+  ntlo: { c: "숫자", lv: 3, f: "num", q: "오늘 득점 꼴찌 팀의 득점은?", fx: "95" },
+  nmar: { c: "숫자", lv: 3, f: "num", q: "오늘 가장 큰 점수 차는 몇 점?", fx: "24" },
+  ngame: { c: "숫자", lv: 3, f: "num", q: "두 팀 득점 합이 가장 높은 경기의 합계 점수는?", fx: "251" } };
+const DEFAULT_QS = ["pts", "ast", "ghi", "tlo", "reb"];
+const buildQuiz = qd => ((qd && qd.qs && qd.qs.length === 5) ? qd.qs : DEFAULT_QS).map((k, i) => { const b = BANK[k] || BANK[DEFAULT_QS[i]]; return Object.assign({ id: i + 1, key: k, pts: 15 }, F[b.f], b); });
+let QUIZ = buildQuiz(null);
+const MAXP = 15 * 5 + RULE.bonus;
 const DAY = 86400e3;
 
 /* 카카오톡 인앱 브라우저에서는 구글 로그인이 막혀서 외부 브라우저로 넘김 */
@@ -46,6 +81,7 @@ const fmtOk = (q, a) => q.re.test(String(a || "").trim());
 function canon(q, v) {
   v = String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (q.pair) return v.split(" ").sort().join(" ");
+  if (q.num) return String(parseInt(v, 10));
   if (q.name) return v.replace(/['.]/g, "").replace(/-/g, " ").replace(/\s+/g, " ").replace(/ (jr|sr|ii|iii|iv)$/, "").trim();
   return v;
 }
@@ -69,7 +105,7 @@ function loadScript(src) { return new Promise((res, rej) => { if (document.query
 
 /* ---------- 상태 ---------- */
 const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "pts", rankMonth: "",
-  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], allProfiles: [], rosterUpload: null };
+  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), allProfiles: [], rosterUpload: null };
 let unsubMe = null, unsubAns = null, unsubChat = null;
 const approved = () => !!(S.me && S.me.status === "ok");
 
@@ -85,7 +121,7 @@ onAuthStateChanged(auth, u => {
   watchAnswers(); render();
 });
 onSnapshot(query(collection(db, "quizzes"), orderBy("date", "desc"), limit(2)), s => {
-  const list = s.docs.map(d => d.data()); S.quiz = list[0] || null; S.prev = list[1] || null; watchAnswers(); render(true);
+  const list = s.docs.map(d => d.data()); S.quiz = list[0] || null; S.prev = list[1] || null; QUIZ = buildQuiz(S.quiz); watchAnswers(); render(true);
 });
 function watchAnswers() {
   if (unsubAns) { unsubAns(); unsubAns = null; } S.ans = null;
@@ -198,8 +234,8 @@ function vHome() {
   });
   if (S.prev && S.prev.graded && Object.keys(S.prev.graded).length) {
     h += '<section class="card"><div class="sect-h"><h3>지난 퀴즈 결과</h3><span class="sub">' + dLabel(S.prev.date) + '</span></div><div class="tbl-wrap"><table><thead><tr><th>문항</th><th>정답</th><th class="r">정답률</th></tr></thead><tbody>' +
-      QUIZ.map((q, i) => { const st = (S.prev.stats || {})[q.id] || {}; const rate = st.sub ? Math.round(st.right / st.sub * 100) + "%" : "-";
-        return '<tr><td>' + (i + 1) + '번</td><td><b>' + esc(String((S.prev.keys || {})[q.id] || "-").split(",")[0]) + '</b></td><td class="r num">' + rate + '</td></tr>'; }).join("") + '</tbody></table></div></section>';
+      buildQuiz(S.prev).map((q, i) => { const st = (S.prev.stats || {})[q.id] || {}; const rate = st.sub ? Math.round(st.right / st.sub * 100) + "%" : "-";
+        return '<tr><td>' + esc(q.q.replace(/^오늘(의)? /, "").replace(/\?$/, "")) + '</td><td><b>' + esc(String((S.prev.keys || {})[q.id] || "-").split(",")[0]) + '</b></td><td class="r num">' + rate + '</td></tr>'; }).join("") + '</tbody></table></div></section>';
   }
   return h;
 }
@@ -269,7 +305,7 @@ const cond = (ok, t) => '<li><i class="' + (ok ? 'y' : 'n') + '">' + (ok ? '✓'
 const NOTICES = [
   { pin: 1, t: "운영자 안내 말씀", b: '<p>「NBA 오늘의 퀴즈는?」은 KB Leopards와 함께 판타지 리그를 하는 분들과 NBA를 더 재미있게 보고 싶어서, 운영자 개인이 비영리로 만든 사이트입니다.</p><p>운영자는 전문 개발자가 아니어서 사이트 오류나 설정 실수가 생길 수 있습니다. 문제가 생기면 최대한 빨리 바로잡겠습니다. 처리에 시간이 조금 걸리더라도 너그러운 양해 부탁드립니다.</p><p><b>다만 포인트 적립·차감·교환 기록만큼은 빠짐없이 철저하게 관리하겠습니다.</b> 오류로 포인트가 잘못 반영된 경우에도 기록을 확인해 정확히 바로잡아 드립니다.</p><p>함께해 주셔서 감사합니다.</p>' },
   { t: "참여 방법과 하루 일정", b: '<dl class="kv"><dt>밤 9시쯤</dt><dd>다음 날 경기 퀴즈 공개 (한국시간)</dd><dt>첫 경기 전</dt><dd>문항마다 따로 답을 적어 제출. 마감 전까지 수정 가능</dd><dt>제출 후</dt><dd>그 문항의 채팅방 입장 가능 (문항마다 채팅방이 따로 있어요)</dd><dt>경기 종료 후</dt><dd>운영자가 공식 기록으로 문항별 정답 확정, 포인트 바로 지급</dd></dl><p class="sub">경기가 없는 날은 퀴즈가 쉬어요.</p>' },
-  { t: "포인트 규정", b: '<ul><li>모든 문항 15P로 같아요</li><li>문항마다 따로 제출하고, 문항마다 따로 채점해요</li><li>5문항 모두 정답이면 보너스 +10P (하루 최대 ' + MAXP + 'P)</li><li>오답·미제출 감점 없음</li><li><b>답은 문제 옆 괄호의 형식 그대로 영어로 적어주세요. 형식이 다르면 오답 처리돼요</b></li><li>선수: 영문 풀네임, 이름 성 순서 (예: Victor Wembanyama) · 팀: 영문 약자 (예: UTA) · 경기: 두 팀 약자 띄어쓰기 (예: POR SAS)</li><li>대소문자, 마침표·아포스트로피(De&#39;Aaron = DeAaron), 하이픈(Gilgeous-Alexander), Jr.·III 같은 접미사 유무는 구분하지 않아요. 철자가 틀리거나 성만 적으면 오답이에요</li><li>공동 1위는 해당 선수 모두 정답 처리</li><li>경기 취소·연기로 정답을 정할 수 없는 문항은 전원 정답 처리</li><li>기록 정정이 있어도 정답 확정 시점의 공식 기록 기준</li><li>운영 상황에 따라 문항 포인트는 조정될 수 있어요. 바뀌면 미리 공지하고, 이미 쌓인 포인트는 그대로 유지돼요</li></ul>' },
+  { t: "포인트 규정", b: '<ul><li>모든 문항 15P로 같아요</li><li>문항마다 따로 제출하고, 문항마다 따로 채점해요</li><li>5문항 모두 정답이면 보너스 +10P (하루 최대 ' + MAXP + 'P)</li><li>오답·미제출 감점 없음</li><li><b>답은 문제 옆 괄호의 형식 그대로 영어로 적어주세요. 형식이 다르면 오답 처리돼요</b></li><li>선수: 영문 풀네임, 이름 성 순서 (예: Victor Wembanyama) · 팀: 영문 약자 (예: UTA) · 경기: 두 팀 약자 띄어쓰기 (예: POR SAS) · 숫자: 아라비아 숫자만 (예: 38)</li><li>숫자 문제는 실제 기록과 가장 가까운 사람이 정답이에요. 차이가 같으면 모두 정답</li><li>문제 유형은 날마다 바뀌어요. 경기가 적은 날은 조금 어려운 문제가 나올 수 있어요</li><li>대소문자, 마침표·아포스트로피(De&#39;Aaron = DeAaron), 하이픈(Gilgeous-Alexander), Jr.·III 같은 접미사 유무는 구분하지 않아요. 철자가 틀리거나 성만 적으면 오답이에요</li><li>공동 1위는 해당 선수 모두 정답 처리</li><li>경기 취소·연기로 정답을 정할 수 없는 문항은 전원 정답 처리</li><li>기록 정정이 있어도 정답 확정 시점의 공식 기록 기준</li><li>운영 상황에 따라 문항 포인트는 조정될 수 있어요. 바뀌면 미리 공지하고, 이미 쌓인 포인트는 그대로 유지돼요</li></ul>' },
   { t: "기프티콘 교환 규정", b: '<dl class="kv"><dt>바로 써버리기~</dt><dd>2,000P → 2,000원 상당</dd><dt>모았다가 한번에!</dt><dd>5,000P → 5,000원 상당</dd><dt>횟수</dt><dd>제한 없음. 모은 포인트만큼 교환할 수 있어요</dd><dt>적립 한도</dt><dd>하루 최대 85P라, 한 달 내내 전부 맞혀도 최대 2,635P예요</dd><dt>조건</dt><dd>승인 회원 · 가입 14일 경과</dd></dl><p><b>교환 절차</b></p><ul><li>포인트 탭에서 교환 신청 → 교환 코드 발급 (포인트 바로 차감)</li><li>카톡 문의방에 닉네임과 교환 코드 전송</li><li>운영자가 코드 확인 후 기프티콘 발송</li><li>반려 시 포인트 전액 환불</li></ul><p class="sub">운영 상황에 따라 교환 기준 포인트와 기프티콘 종류는 조정될 수 있어요. 바뀌면 미리 공지하고, 이미 쌓인 포인트는 그대로 유지돼요.</p>' },
   { t: "가입 · 중복 가입 규정", b: '<ul><li>구글 계정으로 로그인한 뒤 가입 신청해요</li><li>KB Leopards와 같은 리그를 하는 리그원, 리그원이 초대한 지인만 가입할 수 있어요</li><li>리그원은 판타지 앱 안의 닉네임을 그대로 적어주세요. 운영자가 리그 명단과 대조해 승인해요</li><li>지인은 초대한 리그원의 리그와 닉네임을 적어주세요</li><li>1인 1계정. 여러 리그에 있어도 계정은 하나만</li><li>한 연락처로는 한 계정만 가입할 수 있어요</li><li>중복·부정 참여가 확인되면 포인트가 회수되고 이용이 제한돼요</li></ul>' },
   { t: "개인정보 안내", b: '<dl class="kv"><dt>수집 항목</dt><dd>이름, 연락처, 리그, 닉네임, 구글 계정 이메일</dd><dt>이용 목적</dt><dd>가입 확인, 중복 가입 방지, 기프티콘 발송</dd><dt>보관</dt><dd>탈퇴 요청 시 즉시 삭제</dd><dt>공개 범위</dt><dd>다른 참여자에게는 닉네임과 리그만 보여요</dd></dl>' },
@@ -302,6 +338,12 @@ function vJoin() {
 }
 
 /* ---------- ADMIN ---------- */
+function pickerHtml() {
+  return '<div class="field"><label>문제 고르기 <span class="sub" style="display:inline">' + S.pick.length + '/5 · 고른 순서대로 1~5번</span></label>' + CATS.map(c => '<div class="pick-cat"><span class="label">' + c + '</span><div class="pick">' +
+    Object.keys(BANK).filter(k => BANK[k].c === c).map(k => { const b = BANK[k], n = S.pick.indexOf(k) + 1;
+      return '<button type="button" class="pk lv' + b.lv + '" data-pick="' + k + '" aria-pressed="' + (n > 0) + '">' + (n ? '<em>' + n + '</em>' : '') + '<span>' + esc(b.q.replace(/^오늘(의)? /, "").replace(/\?$/, "")) + '</span><small>' + LV[b.lv] + '</small></button>'; }).join("") + '</div></div>').join("") +
+    '<span class="help">숫자 문제는 가장 가까운 사람이 정답이에요 (차이가 같으면 모두 정답)</span></div>';
+}
 function vAdmin() {
   if (!S.isAdmin) return "";
   const tabs = [["dash", "현황", 0], ["quiz", "퀴즈·채점", 0], ["apps", "가입 승인", S.waitUsers.length], ["ex", "교환 처리", S.waitEx.length], ["roster", "리그 명단", 0]];
@@ -316,13 +358,13 @@ function vAdmin() {
     const nd = new Date(Date.now() + (kst().getUTCHours() >= 12 ? DAY : 0));
     h += '<section class="card form"><h3>새 퀴즈 열기</h3><p class="sub">경기 날짜(한국시간)와 첫 경기 시작 시간을 넣으면 그 시간에 자동 마감돼요. 같은 날짜로 다시 열면 덮어써요.</p>' +
       '<div class="sim"><div class="field"><label for="qz-d">경기 날짜</label><input id="qz-d" type="date" value="' + dateKey(nd) + '"></div><div class="field"><label for="qz-t">첫 경기 시간</label><input id="qz-t" type="time" value="08:00"></div></div>' +
-      '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div><button class="btn pri" id="qz-open"' + (S.busy ? ' disabled' : '') + '>퀴즈 열기</button></section>';
+      '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div>' + pickerHtml() + '<button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
     if (S.quiz) {
       h += '<div class="sect-h"><h3>' + dLabel(S.quiz.date) + ' 채점</h3><span class="sub">마감 ' + hhmm(S.quiz.deadline) + (quizOpen() ? ' · 진행 중' : ' · 마감됨') + '</span></div><p class="sub">문항마다 따로 확정해요. 공식 박스스코어를 보고 문제의 괄호 형식 그대로 정답을 적어주세요. 공동 1위는 쉼표로 여러 개. 대소문자는 구분하지 않고, 형식이 다른 답은 자동으로 오답 처리돼요.</p>';
       QUIZ.forEach((q, i) => { const g = S.quiz.graded && S.quiz.graded[q.id], st = (S.quiz.stats || {})[q.id] || {}, v = g ? S.quiz.keys[q.id] : (S.keyDraft[q.id] || "");
         h += '<article class="card q"><div class="q-head"><span class="q-no">' + (i + 1) + '</span>' + (g ? '<span class="st ok">확정</span>' : '<span class="st wait">미확정</span>') + '<span class="q-pts">+' + q.pts + 'P</span></div><label class="q-text" for="k-' + q.id + '">' + esc(q.q) + ' <span class="fx">(예: ' + esc(q.fx) + ')</span></label>' +
-          '<input class="ans" id="k-' + q.id + '" data-keyin="' + q.id + '" value="' + esc(v) + '" placeholder="' + esc(q.fx) + (q.name ? ', 공동 1위면 쉼표로' : '') + '" autocomplete="off" spellcheck="false"' + (g ? ' disabled' : '') + '>' +
-          (g ? '<div class="res y"><span>확정</span><div>제출 ' + (st.sub || 0) + '명 · 정답 ' + (st.right || 0) + '명</div></div>' : '<button class="btn gold sm" data-grade="' + q.id + '"' + (v.trim() && !quizOpen() && !S.busy ? '' : ' disabled') + '>' + (quizOpen() ? '마감 후 확정할 수 있어요' : '이 문항 정답 확정 · 포인트 지급') + '</button>') + '</article>'; });
+          '<input class="ans" id="k-' + q.id + '" data-keyin="' + q.id + '" value="' + esc(v) + '" placeholder="' + esc(q.fx) + (q.num ? ' (실제 기록 숫자)' : ', 공동 1위면 쉼표로') + '" autocomplete="off" spellcheck="false"' + (g ? ' disabled' : '') + '>' +
+          (g ? '<div class="res y"><span>확정</span><div>제출 ' + (st.sub || 0) + '명 · 정답 ' + (st.right || 0) + '명' + (q.num && st.gap != null ? ' · 가장 가까운 차이 ' + st.gap : '') + '</div></div>' : '<button class="btn gold sm" data-grade="' + q.id + '"' + (v.trim() && !quizOpen() && !S.busy ? '' : ' disabled') + '>' + (quizOpen() ? '마감 후 확정할 수 있어요' : '이 문항 정답 확정 · 포인트 지급') + '</button>') + '</article>'; });
     }
   }
   if (S.admTab === "apps") {
@@ -430,8 +472,9 @@ async function openQuiz() {
   const [y, m, dd] = d.split("-").map(Number), [hh, mi] = t.split(":").map(Number);
   const deadline = Timestamp.fromDate(new Date(Date.UTC(y, m - 1, dd, hh - 9, mi)));
   const games = document.getElementById("qz-g").value.split("\n").map(s => s.trim().split(/\s+/)).filter(p => p.length >= 2).map(p => ({ a: p[0].toUpperCase(), h: p[1].toUpperCase(), t: p[2] || "" }));
+  if (S.pick.length !== 5) { toast("문제 5개를 골라주세요"); return; }
   S.busy = true; render(true);
-  try { await setDoc(doc(db, "quizzes", d), { date: d, deadline, games, keys: {}, graded: {}, stats: {} }); toast(dLabel(d) + " 퀴즈를 열었어요"); }
+  try { await setDoc(doc(db, "quizzes", d), { date: d, deadline, games, qs: S.pick.slice(), keys: {}, graded: {}, stats: {} }); toast(dLabel(d) + " 퀴즈를 열었어요"); }
   catch (e) { toast("실패: " + (e.code || e.message)); }
   S.busy = false; render(true);
 }
@@ -439,6 +482,7 @@ async function commitOps(ops) { for (let i = 0; i < ops.length; i += 400) { cons
 async function grade(id) {
   id = +id; const q = qById(id), key = String(S.keyDraft[id] || "").trim(), Q = S.quiz; if (!key || !Q) return;
   if (key.split(",").some(k => k.trim() && !fmtOk(q, k))) { toast("정답이 문제 형식과 달라요: " + q.rule); return; }
+  if (q.num && key.includes(",")) { toast("숫자 문제는 정답 숫자 하나만 적어주세요"); return; }
   S.busy = true; render(true);
   try {
     const [as, ps] = await Promise.all([getDocs(query(collection(db, "answers"), where("date", "==", Q.date))), getDocs(collection(db, "profiles"))]);
@@ -446,15 +490,17 @@ async function grade(id) {
     const mk = monthKey(), label = dLabel(Q.date), ops = []; let nSub = 0, nRight = 0; const resAll = {};
     const mk2 = mKey(Q.date.slice(0, 7));
     const bump = (uid, pts, right, ans) => { if (!prof[uid]) return; ops.push(b => b.update(doc(db, "profiles", uid), { ["m." + mk2 + ".p"]: increment(pts), ["m." + mk2 + ".r"]: increment(right), ["m." + mk2 + ".a"]: increment(ans) })); };
+    let best = Infinity;
+    if (q.num) as.docs.forEach(d => { const a = d.data(); if (a.sub && a.sub[id] && fmtOk(q, a.a && a.a[id])) best = Math.min(best, Math.abs(parseInt(a.a[id], 10) - parseInt(key, 10))); });
     as.docs.forEach(d => { const a = d.data(); resAll[a.uid] = Object.assign({}, a.res || {});
-      if (!(a.sub && a.sub[id])) return; nSub++; const ok = isRight(id, a.a && a.a[id], key); if (ok) nRight++; resAll[a.uid][id] = ok;
+      if (!(a.sub && a.sub[id])) return; nSub++; const ok = q.num ? (fmtOk(q, a.a && a.a[id]) && Math.abs(parseInt(a.a[id], 10) - parseInt(key, 10)) === best) : isRight(id, a.a && a.a[id], key); if (ok) nRight++; resAll[a.uid][id] = ok;
       ops.push(b => b.update(d.ref, { ["res." + id]: ok }));
       if (ok) { ops.push(b => b.update(doc(db, "users", a.uid), { points: increment(q.pts) })); ops.push(b => b.set(doc(collection(db, "ledger")), { uid: a.uid, p: q.pts, t: label + " " + id + "번 정답", at: serverTimestamp() })); }
       bump(a.uid, ok ? q.pts : 0, ok ? 1 : 0, 1); });
     const graded = Object.assign({}, Q.graded || {}, { [id]: true });
     if (QUIZ.every(x => graded[x.id])) Object.keys(resAll).forEach(uid => { if (QUIZ.every(x => resAll[uid][x.id] === true)) {
       ops.push(b => b.update(doc(db, "users", uid), { points: increment(RULE.bonus) })); ops.push(b => b.set(doc(collection(db, "ledger")), { uid, p: RULE.bonus, t: label + " 전문항 정답 보너스", at: serverTimestamp() })); bump(uid, RULE.bonus, 0, 0); } });
-    ops.push(b => b.update(doc(db, "quizzes", Q.date), { ["keys." + id]: key, ["graded." + id]: true, ["stats." + id]: { sub: nSub, right: nRight } }));
+    ops.push(b => b.update(doc(db, "quizzes", Q.date), { ["keys." + id]: key, ["graded." + id]: true, ["stats." + id]: q.num ? { sub: nSub, right: nRight, gap: best === Infinity ? null : best } : { sub: nSub, right: nRight } }));
     await commitOps(ops); delete S.keyDraft[id]; toast(id + "번 확정 · 정답 " + nRight + "명 / 제출 " + nSub + "명");
   } catch (e) { toast("채점 실패: " + (e.code || e.message)); }
   S.busy = false; S.profiles = null; render(true);
@@ -533,6 +579,8 @@ document.addEventListener("click", ev => {
   if (b.dataset.app) { b.disabled = true; approve(b.dataset.app, b.dataset.st); return; }
   if (b.dataset.grade) { grade(b.dataset.grade); return; }
   if (b.id === "qz-open") { openQuiz(); return; }
+  if (b.dataset.pick) { const k = b.dataset.pick, i = S.pick.indexOf(k); if (i >= 0) S.pick.splice(i, 1); else if (S.pick.length < 5) S.pick.push(k); else { toast("5문제까지 고를 수 있어요. 하나를 먼저 빼주세요"); return; }
+    const keep = ["qz-d", "qz-t", "qz-g"].map(id => { const e = document.getElementById(id); return e ? e.value : ""; }); render(true); ["qz-d", "qz-t", "qz-g"].forEach((id, n) => { const e = document.getElementById(id); if (e) e.value = keep[n]; }); return; }
   if (b.dataset.x) { b.disabled = true; settleEx(b.dataset.x, b.dataset.xs); return; }
   if (b.id === "rs-save") { const l = document.getElementById("rs-l").value, teams = document.getElementById("rs-t").value.split("\n").map(x => x.trim()).filter(Boolean).map(x => { const p = x.split(" / "); return { team: p[0].trim(), mgr: (p[1] || "").trim() }; });
     saveRosters({ [l]: teams }).then(() => toast(l + " 명단 " + teams.length + "팀 저장")); return; }

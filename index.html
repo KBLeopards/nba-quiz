@@ -190,6 +190,13 @@ tr:last-child td{border-bottom:0}
 .rk .who small{color:var(--muted);font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rk .p{font-family:var(--f-num);font-weight:700;font-size:17px}
 .msel{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:700;min-height:38px}
+.pick-cat{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.pick{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.pk{position:relative;border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;text-align:left;font-size:13px;display:flex;flex-direction:column;gap:2px;min-height:52px}
+.pk small{font-size:11px;font-weight:700}
+.pk.lv1 small{color:var(--good)}.pk.lv2 small{color:var(--lav-ink)}.pk.lv3 small{color:var(--bad)}
+.pk[aria-pressed="true"]{border-color:var(--brand);background:var(--lav);font-weight:700}
+.pk em{position:absolute;top:-8px;right:-6px;font-style:normal;background:var(--brand);color:var(--brand-ink);width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-family:var(--f-num)}
 .bar{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:8px 0}
 .bar b{font-size:14px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar .v{font-family:var(--f-num);font-weight:700}
@@ -337,6 +344,6 @@ details[open] summary::after{transform:rotate(-135deg)}
 <main><div class="wrap" id="view"><p class="sub">불러오는 중…</p></div></main>
 <nav class="tabbar" aria-label="메뉴"><div class="wrap" id="tabs"></div></nav>
 <div id="layer"></div>
-<script type="module" src="./app.js?v=1793812828"></script>
+<script type="module" src="./app.js?v=1793813282"></script>
 </body>
 </html>
