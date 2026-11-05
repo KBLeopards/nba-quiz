@@ -695,7 +695,7 @@ async function loadExamples(Q) {
     const [y, m, dd] = d.split("-").map(Number), us = new Date(Date.UTC(y, m - 1, dd) - DAY);
     const sb = await getJson("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=" + us.getUTCFullYear() + pad(us.getUTCMonth() + 1) + pad(us.getUTCDate()));
     const want = games.map(g => [g.a, g.h].sort().join(" ")), teams = [], pairs = [];
-    const take = (cat, L) => { const n = String(cat.name || cat.abbreviation || cat.displayName || "").toLowerCase(), t = /assist/.test(n) ? "ast" : /rebound/.test(n) ? "reb" : /point/.test(n) ? "pts" : /rating/.test(n) ? "rat" : null;
+    const take = (cat, L) => { const n = String(cat.name || cat.abbreviation || cat.displayName || "").toLowerCase(), t = /three|3p/.test(n) ? "tpm" : /steal/.test(n) ? "stl" : /block/.test(n) ? "blk" : /assist/.test(n) ? "ast" : /rebound/.test(n) ? "reb" : /point/.test(n) ? "pts" : /rating/.test(n) ? "rat" : null;
       if (!t || !L || !L.athlete) return; const nm = deacc(L.athlete.displayName || L.athlete.fullName || "").trim(), v = parseFloat(L.value != null ? L.value : L.displayValue) || 0;
       if (NAME_RE.test(nm) && (!best[t] || v > best[t].v)) best[t] = { v, nm }; };
     (sb.events || []).forEach(ev => { const comp = ev.competitions[0], cs = comp.competitors.map(c => { const r = (c.records || []).find(x => x.type === "total" || /overall/i.test(x.name || "")) || (c.records || [])[0], w = String(r && r.summary || "0-0").split("-").map(Number);
@@ -706,7 +706,7 @@ async function loadExamples(Q) {
       const home = cs.find(x => x.c.homeAway === "home") || cs[1], away = cs.find(x => x !== home);
       pairs.push({ p: away.ab + " " + home.ab, s: away.pct + home.pct }); });
     const P = best.pts && best.pts.nm, A = (best.ast && best.ast.nm) || P, R = (best.reb && best.reb.nm) || P, X = (best.rat && best.rat.nm) || P;
-    ["pts", "fgm", "ftm", "min", "pm", "bench", "tov"].forEach(k => set(k, P)); set("ast", A); ["reb", "oreb"].forEach(k => set(k, R)); ["tpm", "stl", "blk"].forEach(k => set(k, X));
+    ["pts", "fgm", "ftm", "min", "pm", "bench", "tov"].forEach(k => set(k, P)); set("ast", A); ["reb", "oreb"].forEach(k => set(k, R)); set("tpm", (best.tpm && best.tpm.nm) || P); set("stl", (best.stl && best.stl.nm) || A || X); set("blk", (best.blk && best.blk.nm) || R || X);
     if (teams.length) { const hi = teams.slice().sort((a, b) => b.pct - a.pct)[0].ab, lo = teams.slice().sort((a, b) => a.pct - b.pct)[0].ab;
       ["thi", "t3", "treb", "tast", "bigw"].forEach(k => set(k, hi)); ["tlo", "ttov"].forEach(k => set(k, lo)); } else fb();
     if (pairs.length) { const sp = pairs.slice().sort((a, b) => b.s - a.s); set("ghi", sp[0].p); set("glo", sp[sp.length - 1].p); set("gcl", pairs[0].p); }
