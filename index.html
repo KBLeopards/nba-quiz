@@ -65,10 +65,14 @@ button{cursor:pointer}
 .top .wrap{display:flex;align-items:center;gap:10px;padding-block:10px}
 .logo{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
 .logo>div{min-width:0;overflow:hidden}
+.logo b{display:block;overflow:hidden;text-overflow:ellipsis}
 .logo b{font-family:var(--f-display);font-weight:400;font-size:clamp(16px,4.6vw,20px);letter-spacing:.01em;white-space:nowrap}
 .logo span{font-family:var(--f-num);font-size:12px;color:#E4D6FF;letter-spacing:.12em}
 .chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:700;border:0;min-height:36px}
 .chip.pts{background:rgba(255,255,255,.14);color:#FFE7A3}
+.chip.ntc{background:rgba(255,255,255,.14);color:#fff;text-decoration:none}
+.pop-body{font-size:15px;line-height:1.6;white-space:normal}
+@media (max-width:420px){.top .wrap{gap:6px}.chip{padding:6px 8px;font-size:12px;gap:3px}.logo{gap:6px}.logo svg{width:24px;height:24px}.logo b{font-size:15px}.logo span{display:none}}
 .chip.ask{background:var(--kakao);color:var(--kakao-ink)}
 
 main{padding-bottom:calc(var(--tab-h) + 28px + env(safe-area-inset-bottom,0px))}
@@ -348,11 +352,12 @@ details[open] summary::after{transform:rotate(-135deg)}
     <div><b>NBA 오늘의 퀴즈는?</b><br><span>KB LEOPARDS</span></div>
   </div>
   <button class="chip pts" id="hdr-pts" data-go="wallet"></button>
+  <a class="chip ntc" href="https://open.kakao.com/o/gFyLcIVi" target="_blank" rel="noopener" aria-label="공지·이벤트 오픈채팅방">공지방</a>
   <button class="chip ask" id="hdr-ask" aria-label="카톡 문의">문의</button>
 </div></header>
 <main><div class="wrap" id="view"><p class="sub">불러오는 중…</p></div></main>
 <nav class="tabbar" aria-label="메뉴"><div class="wrap" id="tabs"></div></nav>
 <div id="layer"></div>
-<script type="module" src="./app.js?v=1793822142"></script>
+<script type="module" src="./app.js?v=1793870111"></script>
 </body>
 </html>

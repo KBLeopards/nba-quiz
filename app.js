@@ -6,6 +6,7 @@ import { firebaseConfig } from "./firebase-config.js";
 /* ---------- 설정 ---------- */
 const ADMINS = ["kyubum1231@gmail.com"];
 const KAKAO = "https://open.kakao.com/o/sMAP4AVi";
+const NOTICE_ROOM = "https://open.kakao.com/o/gFyLcIVi";
 const LEAGUES = ["미친인생","KB Keeper League 26-27","2026-2027 NBA Mania V1","2026-2027 NBA Mania V2","KB League 26-27","Winners NBA 26-27","M NBA FANTASY","2026-2027 NBA H2H League","KB Mini League","KB Concept League","하루에 10분씩 하는 느바 판타지","Come on Adam Silver"];
 const RULE = { budget: 50000, minDays: 14, bonus: 20, part: 10, qpts: 20,
   tiers: [{ id: "b", name: "바로 써버리기~", pts: 2000, won: 2000, desc: "2,000원 상당 · 편의점·저가 커피" },
@@ -121,6 +122,14 @@ onAuthStateChanged(auth, u => {
   }
   watchAnswers(); render();
 });
+onSnapshot(doc(db, "quizzes", "_notice"), s => { S.popup = s.exists() ? s.data() : null; maybePopup(); if (S.tab === "admin") render(true); }, () => {});
+function maybePopup() {
+  const p = S.popup; if (!p || !p.on || !p.id || S.popShown === p.id) return;
+  try { if (localStorage.getItem("nq-pop-seen") === p.id) return; } catch (e) {}
+  S.popShown = p.id;
+  sheet('<span class="label">공지</span><h2>' + esc(p.title || "공지") + '</h2><div class="pop-body">' + esc(p.body || "").replace(/\n/g, "<br>") + '</div>' +
+    '<a class="btn kakao" href="' + NOTICE_ROOM + '" target="_blank" rel="noopener">공지·이벤트방 들어가기</a><div class="row"><button class="btn line" data-pop-hide="' + esc(p.id) + '">다시 보지 않기</button><button class="btn pri" data-close>닫기</button></div>');
+}
 onSnapshot(query(collection(db, "quizzes"), orderBy("date", "desc"), limit(2)), s => {
   const list = s.docs.map(d => d.data()); S.quiz = list[0] || null; S.prev = list[1] || null; QUIZ = buildQuiz(S.quiz); watchAnswers(); render(true);
 });
@@ -371,7 +380,7 @@ const NOTICES = [
   { t: "자주 묻는 질문", b: '<p><b>참가비가 있나요?</b><br>없어요. 기프티콘은 운영자가 사비로 준비합니다.</p><p><b>포인트에 유효기간이 있나요?</b><br>없어요. 모은 포인트는 언제든 교환할 수 있어요.</p><p><b>카카오톡에서 링크를 열었는데 로그인이 안 돼요.</b><br>카톡 안의 브라우저에서는 구글 로그인이 막혀 있어요. 크롬이나 삼성 인터넷으로 열어주세요.</p><p><b>정답이 이상해요.</b><br>카톡 문의방에 문항 번호와 근거 기록을 보내주세요. 확인 후 바로잡아 드려요.</p>' }];
 function vNotice() {
   return '<h2>공지사항</h2>' + NOTICES.map((n, i) => '<details' + (i === 0 ? ' open' : '') + '><summary><span class="nt' + (n.pin ? ' pin' : '') + '">' + (n.pin ? '필독' : '공지') + '</span>' + n.t + '</summary><div class="nbody">' + n.b + '</div></details>').join("") +
-    '<section class="card contact"><h3>문의 · 포인트 교환</h3><p class="sub">사이트 문의와 기프티콘 교환은 카카오톡 1:1 오픈채팅으로 받아요.</p><p class="sub">운영을 응원하고 싶으시면 후원도 여기로 문의해 주세요.</p><a class="btn kakao" href="' + KAKAO + '" target="_blank" rel="noopener">카카오톡 문의하기</a><div class="qr"><div id="qrbox" aria-label="오픈채팅 QR"></div><div><p class="sub" style="margin-bottom:6px">PC에서는 휴대폰으로 QR을 찍어주세요</p><span class="url">' + KAKAO + '</span></div></div></section>' +
+    '<section class="card contact"><h3>문의 · 포인트 교환</h3><p class="sub">사이트 문의와 기프티콘 교환은 카카오톡 1:1 오픈채팅으로 받아요.</p><p class="sub">운영을 응원하고 싶으시면 후원도 여기로 문의해 주세요.</p><a class="btn kakao" href="' + KAKAO + '" target="_blank" rel="noopener">카카오톡 문의하기</a><a class="btn line" href="' + NOTICE_ROOM + '" target="_blank" rel="noopener">공지·이벤트방 들어가기</a><p class="sub">퀴즈 오픈 알림, 이벤트, 규칙 변경은 공지·이벤트 오픈채팅방에서 알려드려요.</p><div class="qr"><div id="qrbox" aria-label="오픈채팅 QR"></div><div><p class="sub" style="margin-bottom:6px">PC에서는 휴대폰으로 QR을 찍어주세요</p><span class="url">' + KAKAO + '</span></div></div></section>' +
     (S.user ? '<section class="card"><p class="sub">' + esc(S.user.email) + ' 로 로그인 중</p><button class="btn line" data-logout style="margin-top:10px">로그아웃</button></section>' : '');
 }
 
@@ -409,6 +418,12 @@ function vAdmin() {
   let h = '<div class="sect-h"><h2>운영자 화면</h2><button class="btn line sm" data-reload>새로고침</button></div><div class="atabs">' + tabs.map(t => '<button data-at="' + t[0] + '" aria-pressed="' + (S.admTab === t[0]) + '">' + t[1] + (t[2] ? '<em>' + t[2] + '</em>' : '') + '</button>').join("") + '</div>';
   const mk = monthKey(), sp = S.okEx.filter(x => toDate(x.at) && monthKey(toDate(x.at)) === mk).reduce((a, x) => a + x.won, 0);
   if (S.admTab === "dash") {
+    const P = S.popup || {};
+    h += '<section class="card form"><h3>팝업 공지</h3><p class="sub">켜두면 참여자가 사이트에 들어올 때 한 번 떠요. 내용을 바꿔서 저장하면 "다시 보지 않기"를 누른 사람에게도 새로 떠요.</p>' +
+      '<div class="field"><label for="pp-t">제목</label><input id="pp-t" maxlength="40" value="' + esc(P.title || "") + '" placeholder="예: 11월 6일 퀴즈는 2경기라 어려운 문제로 나가요"></div>' +
+      '<div class="field"><label for="pp-b">내용</label><textarea id="pp-b" maxlength="600" placeholder="공지 내용">' + esc(P.body || "") + '</textarea></div>' +
+      '<label class="check"><input type="checkbox" id="pp-on"' + (P.on ? ' checked' : '') + '><span>팝업 켜기</span></label>' +
+      '<button class="btn pri" id="pp-save">팝업 공지 저장</button><span class="help">지금 상태: ' + (P.on ? '켜짐' : '꺼짐') + '</span></section>';
     h += '<div class="tiles"><div class="tile"><span>가입 승인 대기</span><b>' + S.waitUsers.length + '</b></div><div class="tile"><span>교환 발송 대기</span><b>' + S.waitEx.length + '</b></div><div class="tile"><span>이번 달 지출</span><b>' + fmt(sp) + '</b><span>원 / 기준 ' + fmt(RULE.budget) + '</span></div><div class="tile"><span>기준까지 여유</span><b>' + fmt(RULE.budget - sp) + '</b><span>원 · 운영자만 보여요</span></div></div>';
     h += '<section class="card"><h3>예산 시뮬레이터</h3><p class="sub" style="margin:4px 0 12px">인원과 정답률을 넣으면 한 달 예상 지출을 계산해요. 예산은 운영자만 보고, 참여자 화면에는 나오지 않아요.</p><div class="sim"><div class="field"><label for="s-n">활성 인원</label><input id="s-n" type="number" inputmode="numeric" value="50" min="1"></div><div class="field"><label for="s-a">평균 정답률 %</label><input id="s-a" type="number" inputmode="numeric" value="30" min="0" max="100"></div><div class="field"><label for="s-r">참여율 %</label><input id="s-r" type="number" inputmode="numeric" value="70" min="0" max="100"></div></div><div id="simout" style="margin-top:12px"></div></section>';
     h += '<section class="card"><h3>제도 설정값</h3><dl class="kv" style="margin-top:10px"><dt>교환 단가</dt><dd>1P = 1원 (바로 써버리기~ 2,000P · 모았다가 한번에! 5,000P)</dd><dt>하루 최대</dt><dd>' + MAXP + 'P</dd><dt>포인트</dt><dd>참여 10P · 정답 20P · 전부 정답 +20P</dd><dt>한 달 최대</dt><dd>28경기일 3,640P ~ 31경기일 4,030P (매일 참여·전부 정답 가정)</dd><dt>만점자 한 달</dt><dd>2,000P 교환 최대 2회 (3회는 불가)</dd><dt>설계 기준</dt><dd>활성 50명 · 정답률 30% · 참여율 70% · 28경기일 → 월 약 39,300원</dd><dt>교환 가능</dt><dd>가입 14일 후</dd></dl></section>';
@@ -722,7 +737,7 @@ async function loadAnswers(d) {
 /* ---------- 시트·토스트 ---------- */
 function sheet(html) { document.getElementById("layer").innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>' + html + '</div></div>'; }
 function closeSheet() { document.getElementById("layer").innerHTML = ""; }
-function askSheet() { sheet('<h2>문의 · 교환 · 후원</h2><p class="sub">아래 내용 모두 카카오톡 1:1 오픈채팅 하나로 받아요.</p><dl class="kv"><dt>사이트 문의</dt><dd>오류, 정답 이의, 가입 관련</dd><dt>포인트 교환</dt><dd>닉네임과 교환 코드를 같이 보내주세요</dd><dt>후원</dt><dd>운영을 응원하고 싶으시면 후원도 여기로 문의해 주세요. 보내주신 마음은 기프티콘과 운영에 소중히 쓰겠습니다</dd></dl><a class="btn kakao" href="' + KAKAO + '" target="_blank" rel="noopener">카카오톡 문의하기</a><span class="url" style="text-align:center">' + KAKAO + '</span><button class="btn line" data-close>닫기</button>'); }
+function askSheet() { sheet('<h2>문의 · 교환 · 후원</h2><p class="sub">아래 내용 모두 카카오톡 1:1 오픈채팅 하나로 받아요.</p><dl class="kv"><dt>사이트 문의</dt><dd>오류, 정답 이의, 가입 관련</dd><dt>포인트 교환</dt><dd>닉네임과 교환 코드를 같이 보내주세요</dd><dt>후원</dt><dd>운영을 응원하고 싶으시면 후원도 여기로 문의해 주세요. 보내주신 마음은 기프티콘과 운영에 소중히 쓰겠습니다</dd></dl><a class="btn kakao" href="' + KAKAO + '" target="_blank" rel="noopener">카카오톡 문의하기</a><a class="btn line" href="' + NOTICE_ROOM + '" target="_blank" rel="noopener">공지·이벤트방 들어가기</a><span class="url" style="text-align:center">' + KAKAO + '</span><button class="btn line" data-close>닫기</button>'); }
 function confirmTier(id) { const t = RULE.tiers.find(x => x.id === id);
   sheet('<h2>' + t.name + '</h2><dl class="kv"><dt>사용 포인트</dt><dd class="num">' + fmt(t.pts) + 'P</dd><dt>받는 것</dt><dd>' + t.desc + '</dd><dt>교환 후 잔액</dt><dd class="num">' + fmt(S.me.points - t.pts) + 'P</dd></dl><div class="notice info"><p>신청하면 포인트가 바로 차감되고 교환 코드가 나와요. 반려되면 전액 환불돼요.</p></div><div class="row"><button class="btn line" data-close>취소</button><button class="btn gold" id="do-ex" data-t="' + id + '">교환 신청</button></div>'); }
 let toastT; function toast(m) { document.querySelectorAll(".toast").forEach(e => e.remove()); const el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status"); el.textContent = m; document.body.appendChild(el); clearTimeout(toastT); toastT = setTimeout(() => el.remove(), 2800); }
@@ -736,6 +751,10 @@ document.addEventListener("click", ev => {
   if (b.hasAttribute("data-login")) { login(); return; }
   if (b.hasAttribute("data-logout")) { signOut(auth); S.tab = "home"; return; }
   if (b.id === "hdr-ask") { askSheet(); return; }
+  if (b.dataset.popHide) { try { localStorage.setItem("nq-pop-seen", b.dataset.popHide); } catch (e) {} closeSheet(); return; }
+  if (b.id === "pp-save") { const t = document.getElementById("pp-t").value.trim(), bd = document.getElementById("pp-b").value.trim(), on = document.getElementById("pp-on").checked;
+    if (on && !t && !bd) { toast("제목이나 내용을 적어주세요"); return; }
+    setDoc(doc(db, "quizzes", "_notice"), { title: t, body: bd, on, id: String(Date.now()) }).then(() => toast(on ? "팝업 공지 저장 · 켜짐" : "팝업 공지 저장 · 꺼짐"), e => toast("저장 실패: " + (e.code || e.message))); return; }
   if (b.hasAttribute("data-close")) { closeSheet(); return; }
   if (b.dataset.sub) { submitAnswer(b.dataset.sub); return; }
   if (b.dataset.room !== undefined) { S.room = +b.dataset.room; S.roomDate = null; S.tab = "chat"; watchChat(); render(); return; }
