@@ -51,7 +51,9 @@ const BANK = {
   nmar: { c: "숫자", lv: 3, f: "num", q: "오늘 가장 큰 점수 차는 몇 점?", fx: "24" },
   ngame: { c: "숫자", lv: 3, f: "num", q: "두 팀 득점 합이 가장 높은 경기의 합계 점수는?", fx: "251" } };
 const DEFAULT_QS = ["pts", "ast", "ghi", "tlo", "reb"];
-const buildQuiz = qd => ((qd && qd.qs && qd.qs.length === 5) ? qd.qs : DEFAULT_QS).map((k, i) => { const b = BANK[k] || BANK[DEFAULT_QS[i]]; return Object.assign({ id: i + 1, key: k, pts: RULE.qpts }, F[b.f], b); });
+const buildQuiz = qd => ((qd && qd.qs && qd.qs.length === 5) ? qd.qs : DEFAULT_QS).map((k, i) => { const b = BANK[k] || BANK[DEFAULT_QS[i]]; const o = Object.assign({ id: i + 1, key: k, pts: RULE.qpts }, F[b.f], b); const fx = qd && qd.fx && qd.fx[i + 1]; if (fx) o.fx = fx; return o; });
+function autoFx(f, games) { const g = (games || [])[0]; if (!g) return ""; if (f === "team") return g.a; if (f === "pair") return g.a + " " + g.h; return ""; }
+const parseGames = txt => String(txt || "").split("\n").map(x => x.trim().split(/\s+/)).filter(p => p.length >= 2).map(p => ({ a: p[0].toUpperCase(), h: p[1].toUpperCase(), t: p[2] || "" }));
 let QUIZ = buildQuiz(null);
 const MAXP = RULE.qpts * 5 + RULE.bonus + RULE.part;
 const DAY = 86400e3;
@@ -107,7 +109,7 @@ function loadScript(src) { return new Promise((res, rej) => { if (document.query
 
 /* ---------- 상태 ---------- */
 const S = { user: null, me: undefined, isAdmin: false, quiz: null, prev: null, ans: null, tab: "home", room: 0, admTab: "dash", rankTab: "pts", rankMonth: "",
-  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), autoInfo: {}, autoMsg: "", members: null, memQ: "", memF: "all", ansList: null, ansListDate: null, ansDate: null, hist: null, histSel: null, histQuiz: null, histAns: null, roomDate: null, allProfiles: [], rosterUpload: null };
+  profiles: null, ledger: [], exchanges: [], chat: [], rosters: {}, waitUsers: [], waitEx: [], okEx: [], drafts: {}, keyDraft: {}, revealed: {}, busy: false, rosterSel: LEAGUES[0], pick: DEFAULT_QS.slice(), fxDraft: {}, autoInfo: {}, autoMsg: "", members: null, memQ: "", memF: "all", ansList: null, ansListDate: null, ansDate: null, hist: null, histSel: null, histQuiz: null, histAns: null, roomDate: null, allProfiles: [], rosterUpload: null };
 let unsubMe = null, unsubAns = null, unsubChat = null;
 const approved = () => !!(S.me && S.me.status === "ok");
 
@@ -406,6 +408,13 @@ function vJoin() {
 }
 
 /* ---------- ADMIN ---------- */
+function fxHtml() {
+  if (!S.pick.length) return "";
+  const gEl = document.getElementById("qz-g"), games = parseGames(gEl ? gEl.value : S.gamesDraft || "");
+  return '<div class="field"><label>문제 옆 예시 <span class="sub" style="display:inline">· 비우면 경기 목록에서 자동 (팀·경기) 또는 기본 예시</span></label>' + S.pick.map((k, i) => { const b = BANK[k], ph = autoFx(b.f, games) || b.fx;
+    return '<div class="fx-row"><span class="q-no">' + (i + 1) + '</span><input class="ans" id="fx-' + k + '" data-fx="' + k + '" value="' + esc(S.fxDraft[k] || "") + '" placeholder="' + esc(ph) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(b.q) + ' 예시"></div>'; }).join("") +
+    '<span class="help">선수 문제는 오늘 뛰는 선수 이름을 영문 풀네임으로 적어주세요. 예시는 형식을 보여주는 용도예요</span></div>';
+}
 function pickerHtml() {
   return '<div class="field"><label>문제 고르기 <span class="sub" style="display:inline">' + S.pick.length + '/5 · 고른 순서대로 1~5번</span></label>' + CATS.map(c => '<div class="pick-cat"><span class="label">' + c + '</span><div class="pick">' +
     Object.keys(BANK).filter(k => BANK[k].c === c).map(k => { const b = BANK[k], n = S.pick.indexOf(k) + 1;
@@ -432,8 +441,9 @@ function vAdmin() {
     const nd = new Date(Date.now() + (kst().getUTCHours() >= 12 ? DAY : 0));
     h += '<section class="card form"><h3>새 퀴즈 열기</h3><p class="sub">경기 날짜(한국시간)와 첫 경기 시작 시간을 넣으면 그 시간에 자동 마감돼요. 같은 날짜로 다시 열면 덮어써요.</p>' +
       '<div class="sim"><div class="field"><label for="qz-d">경기 날짜</label><input id="qz-d" type="date" value="' + dateKey(nd) + '"></div><div class="field"><label for="qz-t">첫 경기 시간</label><input id="qz-t" type="time" value="08:00"></div></div>' +
-      '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div>' + pickerHtml() + '<button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
+      '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div>' + pickerHtml() + fxHtml() + '<button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
     if (S.quiz) {
+      if (quizOpen()) h += '<details class="card"><summary>' + dLabel(S.quiz.date) + ' 퀴즈 예시 바꾸기</summary><div class="nbody form">' + QUIZ.map((q, i) => '<div class="fx-row"><span class="q-no">' + (i + 1) + '</span><input class="ans" id="fe-' + q.id + '" value="' + esc(q.fx) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(q.q) + ' 예시"></div>').join("") + '<button class="btn pri" id="fe-save">예시 저장</button><span class="help">문제와 답안은 그대로고 괄호 안 예시만 바뀌어요</span></div></details>';
       h += '<div class="sect-h"><h3>' + dLabel(S.quiz.date) + ' 채점</h3><span class="sub">마감 ' + hhmm(S.quiz.deadline) + (quizOpen() ? ' · 진행 중' : ' · 마감됨') + '</span></div><p class="sub">경기가 모두 끝나면 <b>정답 자동 채우기</b>를 누르세요. 박스스코어로 계산해서 칸을 채워줘요. 확인 후 문항마다 <b>확정</b>을 누르면 포인트가 나가요. 자동 채우기가 안 되면 문제 형식대로 직접 적으면 돼요 (공동 1위는 쉼표로).</p>' +
         (QUIZ.every(q => S.quiz.graded && S.quiz.graded[q.id]) ? '' : '<button class="btn pri" id="auto-fill"' + (quizOpen() || S.busy ? ' disabled' : '') + '>' + (quizOpen() ? '마감 후 자동 채우기 가능' : S.busy ? '기록 불러오는 중…' : '정답 자동 채우기') + '</button>') + (S.autoMsg ? '<div class="notice ok"><p>' + esc(S.autoMsg) + '</p></div>' : '');
       QUIZ.forEach((q, i) => { const g = S.quiz.graded && S.quiz.graded[q.id], st = (S.quiz.stats || {})[q.id] || {}, v = g ? S.quiz.keys[q.id] : (S.keyDraft[q.id] || "");
@@ -588,8 +598,11 @@ async function openQuiz() {
   const deadline = Timestamp.fromDate(new Date(Date.UTC(y, m - 1, dd, hh - 9, mi)));
   const games = document.getElementById("qz-g").value.split("\n").map(s => s.trim().split(/\s+/)).filter(p => p.length >= 2).map(p => ({ a: p[0].toUpperCase(), h: p[1].toUpperCase(), t: p[2] || "" }));
   if (S.pick.length !== 5) { toast("문제 5개를 골라주세요"); return; }
+  const fx = {};
+  for (let i = 0; i < 5; i++) { const k = S.pick[i], b = BANK[k], q = Object.assign({}, F[b.f]), v = String(S.fxDraft[k] || "").trim() || autoFx(b.f, games);
+    if (v && !fmtOk(Object.assign(q, { re: F[b.f].re }), v)) { toast((i + 1) + "번 예시가 형식과 달라요: " + F[b.f].rule); return; } if (v) fx[i + 1] = v; }
   S.busy = true; render(true);
-  try { await setDoc(doc(db, "quizzes", d), { date: d, deadline, games, qs: S.pick.slice(), keys: {}, graded: {}, stats: {} }); toast(dLabel(d) + " 퀴즈를 열었어요"); S.autoInfo = {}; S.autoMsg = ""; S.keyDraft = {}; }
+  try { await setDoc(doc(db, "quizzes", d), { date: d, deadline, games, qs: S.pick.slice(), fx, keys: {}, graded: {}, stats: {} }); toast(dLabel(d) + " 퀴즈를 열었어요"); S.autoInfo = {}; S.autoMsg = ""; S.keyDraft = {}; S.fxDraft = {}; }
   catch (e) { toast("실패: " + (e.code || e.message)); }
   S.busy = false; render(true);
 }
@@ -775,9 +788,13 @@ document.addEventListener("click", ev => {
   if (b.dataset.grade) { grade(b.dataset.grade); return; }
   if (b.id === "qz-open") { openQuiz(); return; }
   if (b.id === "auto-fill") { autoFill(); return; }
+  if (b.id === "fe-save") { const fx = {}; let bad = 0; QUIZ.forEach(q => { const v = document.getElementById("fe-" + q.id).value.trim(); if (!v) return; if (!fmtOk(q, v)) { bad = q.id; return; } fx[q.id] = v; });
+    if (bad) { toast(bad + "번 예시가 형식과 달라요: " + qById(bad).rule); return; }
+    updateDoc(doc(db, "quizzes", S.quiz.date), { fx }).then(() => toast("예시를 바꿨어요"), e => toast("실패: " + (e.code || e.message))); return; }
   if (b.hasAttribute("data-ans-reload")) { S.ansList = null; render(true); return; }
   if (b.dataset.mf) { S.memF = b.dataset.mf; render(true); return; }
   if (b.dataset.pick) { const k = b.dataset.pick, i = S.pick.indexOf(k); if (i >= 0) S.pick.splice(i, 1); else if (S.pick.length < 5) S.pick.push(k); else { toast("5문제까지 고를 수 있어요. 하나를 먼저 빼주세요"); return; }
+    const ge = document.getElementById("qz-g"); if (ge) S.gamesDraft = ge.value;
     const keep = ["qz-d", "qz-t", "qz-g"].map(id => { const e = document.getElementById(id); return e ? e.value : ""; }); render(true); ["qz-d", "qz-t", "qz-g"].forEach((id, n) => { const e = document.getElementById(id); if (e) e.value = keep[n]; }); return; }
   if (b.dataset.x) { b.disabled = true; settleEx(b.dataset.x, b.dataset.xs); return; }
   if (b.id === "rs-save") { const l = document.getElementById("rs-l").value, teams = document.getElementById("rs-t").value.split("\n").map(x => x.trim()).filter(Boolean).map(x => { const p = x.split(" / "); return { team: p[0].trim(), mgr: (p[1] || "").trim() }; });
@@ -791,6 +808,8 @@ document.addEventListener("input", ev => {
   if (t.dataset.ans) { const id = t.dataset.ans; S.drafts[id] = t.value; const bt = document.querySelector('[data-sub="' + id + '"]');
     if (bt) { const v = t.value.trim(), subd = !!(S.ans && S.ans.sub && S.ans.sub[id]), saved = S.ans && S.ans.a ? (S.ans.a[id] || "") : "", dirty = subd && saved !== v; bt.disabled = !v; bt.className = "btn sm " + (subd && !dirty ? "line" : "pri"); bt.textContent = subd ? (dirty ? "수정 제출" : "제출 완료 ✓") : "제출"; }
     const hh = document.getElementById("h-" + id); if (hh) hh.innerHTML = hintHtml(qById(id), t.value, S.ans && S.ans.sub && S.ans.sub[id]); }
+  if (t.dataset.fx) S.fxDraft[t.dataset.fx] = t.value;
+  if (t.id === "qz-g") { S.gamesDraft = t.value; QUIZ && S.pick.forEach(k => { const e = document.getElementById("fx-" + k); if (e) e.placeholder = autoFx(BANK[k].f, parseGames(t.value)) || BANK[k].fx; }); }
   if (t.dataset.keyin) { const k = t.dataset.keyin; S.keyDraft[k] = t.value; const gb = document.querySelector('[data-grade="' + k + '"]'); if (gb && !quizOpen()) gb.disabled = !t.value.trim(); }
   if (t.id === "j-phone") { const d = t.value.replace(/\D/g, "").slice(0, 11); t.value = d.length > 7 ? d.slice(0, 3) + "-" + d.slice(3, 7) + "-" + d.slice(7) : d.length > 3 ? d.slice(0, 3) + "-" + d.slice(3) : d; }
   if (t.id === "s-n" || t.id === "s-a" || t.id === "s-r") simCalc();
