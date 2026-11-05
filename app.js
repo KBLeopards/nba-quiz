@@ -51,7 +51,8 @@ const BANK = {
   nmar: { c: "숫자", lv: 3, f: "num", q: "오늘 가장 큰 점수 차는 몇 점?", fx: "24" },
   ngame: { c: "숫자", lv: 3, f: "num", q: "두 팀 득점 합이 가장 높은 경기의 합계 점수는?", fx: "251" } };
 const DEFAULT_QS = ["pts", "ast", "ghi", "tlo", "reb"];
-const buildQuiz = qd => ((qd && qd.qs && qd.qs.length === 5) ? qd.qs : DEFAULT_QS).map((k, i) => { const b = BANK[k] || BANK[DEFAULT_QS[i]]; const o = Object.assign({ id: i + 1, key: k, pts: RULE.qpts }, F[b.f], b); const fx = qd && qd.fx && qd.fx[i + 1]; if (fx) o.fx = fx; return o; });
+const buildQuiz = qd => ((qd && qd.qs && qd.qs.length === 5) ? qd.qs : DEFAULT_QS).map((k, i) => { const b = BANK[k] || BANK[DEFAULT_QS[i]]; const o = Object.assign({ id: i + 1, key: k, pts: RULE.qpts }, F[b.f], b); const fx = (qd && qd.fx && qd.fx[i + 1]) || (qd && qd.date && EXC[qd.date] && EXC[qd.date][k]); if (fx) o.fx = fx; return o; });
+const EXC = {};
 function autoFx(f, games) { const g = (games || [])[0]; if (!g) return ""; if (f === "team") return g.a; if (f === "pair") return g.a + " " + g.h; return ""; }
 const parseGames = txt => String(txt || "").split("\n").map(x => x.trim().split(/\s+/)).filter(p => p.length >= 2).map(p => ({ a: p[0].toUpperCase(), h: p[1].toUpperCase(), t: p[2] || "" }));
 let QUIZ = buildQuiz(null);
@@ -133,7 +134,7 @@ function maybePopup() {
     '<a class="btn kakao" href="' + NOTICE_ROOM + '" target="_blank" rel="noopener">공지·이벤트방 들어가기</a><div class="row"><button class="btn line" data-pop-hide="' + esc(p.id) + '">다시 보지 않기</button><button class="btn pri" data-close>닫기</button></div>');
 }
 onSnapshot(query(collection(db, "quizzes"), orderBy("date", "desc"), limit(2)), s => {
-  const list = s.docs.map(d => d.data()); S.quiz = list[0] || null; S.prev = list[1] || null; QUIZ = buildQuiz(S.quiz); watchAnswers(); render(true);
+  const list = s.docs.map(d => d.data()); S.quiz = list[0] || null; S.prev = list[1] || null; QUIZ = buildQuiz(S.quiz); watchAnswers(); render(true); if (S.quiz) loadExamples(S.quiz);
 });
 async function refreshCounts() {
   if (!S.user || !S.quiz || document.visibilityState === "hidden") return;
@@ -441,7 +442,7 @@ function vAdmin() {
     const nd = new Date(Date.now() + (kst().getUTCHours() >= 12 ? DAY : 0));
     h += '<section class="card form"><h3>새 퀴즈 열기</h3><p class="sub">경기 날짜(한국시간)와 첫 경기 시작 시간을 넣으면 그 시간에 자동 마감돼요. 같은 날짜로 다시 열면 덮어써요.</p>' +
       '<div class="sim"><div class="field"><label for="qz-d">경기 날짜</label><input id="qz-d" type="date" value="' + dateKey(nd) + '"></div><div class="field"><label for="qz-t">첫 경기 시간</label><input id="qz-t" type="time" value="08:00"></div></div>' +
-      '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div>' + pickerHtml() + fxHtml() + '<button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
+      '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div>' + pickerHtml() + '<p class="help">문제 옆 예시는 그날 경기의 유력 선수·팀으로 자동으로 정해져요.</p><button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
     if (S.quiz) {
       if (quizOpen()) h += '<details class="card"><summary>' + dLabel(S.quiz.date) + ' 퀴즈 예시 바꾸기</summary><div class="nbody form">' + QUIZ.map((q, i) => '<div class="fx-row"><span class="q-no">' + (i + 1) + '</span><input class="ans" id="fe-' + q.id + '" value="' + esc(q.fx) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(q.q) + ' 예시"></div>').join("") + '<button class="btn pri" id="fe-save">예시 저장</button><span class="help">문제와 답안은 그대로고 괄호 안 예시만 바뀌어요</span></div></details>';
       h += '<div class="sect-h"><h3>' + dLabel(S.quiz.date) + ' 채점</h3><span class="sub">마감 ' + hhmm(S.quiz.deadline) + (quizOpen() ? ' · 진행 중' : ' · 마감됨') + '</span></div><p class="sub">경기가 모두 끝나면 <b>정답 자동 채우기</b>를 누르세요. 박스스코어로 계산해서 칸을 채워줘요. 확인 후 문항마다 <b>확정</b>을 누르면 포인트가 나가요. 자동 채우기가 안 되면 문제 형식대로 직접 적으면 돼요 (공동 1위는 쉼표로).</p>' +
@@ -599,7 +600,7 @@ async function openQuiz() {
   const games = document.getElementById("qz-g").value.split("\n").map(s => s.trim().split(/\s+/)).filter(p => p.length >= 2).map(p => ({ a: p[0].toUpperCase(), h: p[1].toUpperCase(), t: p[2] || "" }));
   if (S.pick.length !== 5) { toast("문제 5개를 골라주세요"); return; }
   const fx = {};
-  for (let i = 0; i < 5; i++) { const k = S.pick[i], b = BANK[k], q = Object.assign({}, F[b.f]), v = String(S.fxDraft[k] || "").trim() || autoFx(b.f, games);
+  for (let i = 0; i < 5; i++) { const k = S.pick[i], b = BANK[k], q = Object.assign({}, F[b.f]), v = String(S.fxDraft[k] || "").trim();
     if (v && !fmtOk(Object.assign(q, { re: F[b.f].re }), v)) { toast((i + 1) + "번 예시가 형식과 달라요: " + F[b.f].rule); return; } if (v) fx[i + 1] = v; }
   S.busy = true; render(true);
   try { await setDoc(doc(db, "quizzes", d), { date: d, deadline, games, qs: S.pick.slice(), fx, keys: {}, graded: {}, stats: {} }); toast(dLabel(d) + " 퀴즈를 열었어요"); S.autoInfo = {}; S.autoMsg = ""; S.keyDraft = {}; S.fxDraft = {}; }
@@ -686,6 +687,32 @@ async function loadMembers() {
 }
 const ESPN_AB = { GS: "GSW", NY: "NYK", SA: "SAS", NO: "NOP", UTAH: "UTA", WSH: "WAS", PHO: "PHX", BRK: "BKN" };
 const tAb = a => ESPN_AB[a] || a;
+async function loadExamples(Q) {
+  const d = Q.date; if (EXC[d]) return; EXC[d] = {};
+  const games = Q.games || [], best = {}, set = (k, v) => { if (v) EXC[d][k] = v; };
+  const fb = () => { ["thi", "t3", "treb", "tast", "bigw", "tlo", "ttov"].forEach(k => set(k, autoFx("team", games))); ["ghi", "glo", "gcl"].forEach(k => set(k, autoFx("pair", games))); };
+  try {
+    const [y, m, dd] = d.split("-").map(Number), us = new Date(Date.UTC(y, m - 1, dd) - DAY);
+    const sb = await getJson("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=" + us.getUTCFullYear() + pad(us.getUTCMonth() + 1) + pad(us.getUTCDate()));
+    const want = games.map(g => [g.a, g.h].sort().join(" ")), teams = [], pairs = [];
+    const take = (cat, L) => { const n = String(cat.name || cat.abbreviation || cat.displayName || "").toLowerCase(), t = /assist/.test(n) ? "ast" : /rebound/.test(n) ? "reb" : /point/.test(n) ? "pts" : /rating/.test(n) ? "rat" : null;
+      if (!t || !L || !L.athlete) return; const nm = deacc(L.athlete.displayName || L.athlete.fullName || "").trim(), v = parseFloat(L.value != null ? L.value : L.displayValue) || 0;
+      if (NAME_RE.test(nm) && (!best[t] || v > best[t].v)) best[t] = { v, nm }; };
+    (sb.events || []).forEach(ev => { const comp = ev.competitions[0], cs = comp.competitors.map(c => { const r = (c.records || []).find(x => x.type === "total" || /overall/i.test(x.name || "")) || (c.records || [])[0], w = String(r && r.summary || "0-0").split("-").map(Number);
+        return { ab: tAb(c.team.abbreviation), pct: (w[0] + w[1]) ? w[0] / (w[0] + w[1]) : .5, c }; });
+      if (want.length && !want.includes(cs.map(x => x.ab).sort().join(" "))) return;
+      cs.forEach(x => { teams.push(x); (x.c.leaders || []).forEach(cat => take(cat, (cat.leaders || [])[0])); });
+      (comp.leaders || []).forEach(cat => take(cat, (cat.leaders || [])[0]));
+      const home = cs.find(x => x.c.homeAway === "home") || cs[1], away = cs.find(x => x !== home);
+      pairs.push({ p: away.ab + " " + home.ab, s: away.pct + home.pct }); });
+    const P = best.pts && best.pts.nm, A = (best.ast && best.ast.nm) || P, R = (best.reb && best.reb.nm) || P, X = (best.rat && best.rat.nm) || P;
+    ["pts", "fgm", "ftm", "min", "pm", "bench", "tov"].forEach(k => set(k, P)); set("ast", A); ["reb", "oreb"].forEach(k => set(k, R)); ["tpm", "stl", "blk"].forEach(k => set(k, X));
+    if (teams.length) { const hi = teams.slice().sort((a, b) => b.pct - a.pct)[0].ab, lo = teams.slice().sort((a, b) => a.pct - b.pct)[0].ab;
+      ["thi", "t3", "treb", "tast", "bigw"].forEach(k => set(k, hi)); ["tlo", "ttov"].forEach(k => set(k, lo)); } else fb();
+    if (pairs.length) { const sp = pairs.slice().sort((a, b) => b.s - a.s); set("ghi", sp[0].p); set("glo", sp[sp.length - 1].p); set("gcl", pairs[0].p); }
+  } catch (e) { fb(); }
+  if (S.quiz && S.quiz.date === d) { QUIZ = buildQuiz(S.quiz); render(true); }
+}
 async function getJson(url) { const r = await fetch(url); if (!r.ok) throw new Error("기록 사이트 응답 " + r.status); return r.json(); }
 async function autoFill() {
   const Q = S.quiz; if (!Q) return;
