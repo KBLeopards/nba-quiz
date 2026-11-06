@@ -442,7 +442,7 @@ function vAdmin() {
     const nd = new Date(Date.now() + (kst().getUTCHours() >= 12 ? DAY : 0));
     h += '<section class="card form"><h3>새 퀴즈 열기</h3><p class="sub">경기 날짜(한국시간)와 첫 경기 시작 시간을 넣으면 그 시간에 자동 마감돼요. 같은 날짜로 다시 열면 덮어써요.</p>' +
       '<div class="sim"><div class="field"><label for="qz-d">경기 날짜</label><input id="qz-d" type="date" value="' + dateKey(nd) + '"></div><div class="field"><label for="qz-t">첫 경기 시간</label><input id="qz-t" type="time" value="08:00"></div></div>' +
-      '<div class="field"><label for="qz-g">경기 목록 (선택)</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30"></textarea><span class="help">한 줄에 "원정 홈 시간". 비워도 돼요</span></div>' + pickerHtml() + '<p class="help">문제 옆 예시는 그날 경기의 유력 선수·팀으로 자동으로 정해져요.</p><button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
+      '<div class="field"><label for="qz-g">경기 목록</label><textarea id="qz-g" placeholder="CLE ORL 08:00&#10;POR SAS 08:30">' + esc(S.gamesDraft || "") + '</textarea><span class="help" id="qz-msg">날짜를 고르면 그날 경기와 첫 경기 시간이 자동으로 채워져요. 한 줄에 "원정 홈 시간"</span><button type="button" class="btn line sm" id="qz-load">경기 다시 불러오기</button></div>' + pickerHtml() + '<p class="help">문제 옆 예시는 그날 경기의 유력 선수·팀으로 자동으로 정해져요.</p><button class="btn pri" id="qz-open"' + (S.busy || S.pick.length !== 5 ? ' disabled' : '') + '>' + (S.pick.length === 5 ? '퀴즈 열기' : '문제 5개를 골라주세요 (' + S.pick.length + '/5)') + '</button></section>';
     if (S.quiz) {
       if (quizOpen()) h += '<details class="card"><summary>' + dLabel(S.quiz.date) + ' 퀴즈 예시 바꾸기</summary><div class="nbody form">' + QUIZ.map((q, i) => '<div class="fx-row"><span class="q-no">' + (i + 1) + '</span><input class="ans" id="fe-' + q.id + '" value="' + esc(q.fx) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(q.q) + ' 예시"></div>').join("") + '<button class="btn pri" id="fe-save">예시 저장</button><span class="help">문제와 답안은 그대로고 괄호 안 예시만 바뀌어요</span></div></details>';
       h += '<div class="sect-h"><h3>' + dLabel(S.quiz.date) + ' 채점</h3><span class="sub">마감 ' + hhmm(S.quiz.deadline) + (quizOpen() ? ' · 진행 중' : ' · 마감됨') + '</span></div><p class="sub">경기가 모두 끝나면 <b>정답 자동 채우기</b>를 누르세요. 박스스코어로 계산해서 칸을 채워줘요. 확인 후 문항마다 <b>확정</b>을 누르면 포인트가 나가요. 자동 채우기가 안 되면 문제 형식대로 직접 적으면 돼요 (공동 1위는 쉼표로).</p>' +
@@ -713,6 +713,21 @@ async function loadExamples(Q) {
   } catch (e) { fb(); }
   if (S.quiz && S.quiz.date === d) { QUIZ = buildQuiz(S.quiz); render(true); }
 }
+async function loadGames() {
+  const de = document.getElementById("qz-d"), msg = document.getElementById("qz-msg"); if (!de || !/^\d{4}-\d{2}-\d{2}$/.test(de.value)) return;
+  const d = de.value, [y, m, dd] = d.split("-").map(Number), us = new Date(Date.UTC(y, m - 1, dd) - DAY);
+  if (msg) msg.textContent = "경기 불러오는 중…";
+  try {
+    const sb = await getJson("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=" + us.getUTCFullYear() + pad(us.getUTCMonth() + 1) + pad(us.getUTCDate()));
+    const gs = (sb.events || []).map(ev => { const cs = ev.competitions[0].competitors, h = cs.find(c => c.homeAway === "home") || cs[1], a = cs.find(c => c !== h), t = new Date(ev.date);
+      return { a: tAb(a.team.abbreviation), h: tAb(h.team.abbreviation), t, k: kst(t) }; }).sort((x, y2) => x.t - y2.t);
+    if (document.getElementById("qz-d").value !== d) return;
+    if (!gs.length) { if (msg) msg.textContent = dLabel(d) + "에는 경기가 없어요"; return; }
+    const hm = g => pad(g.k.getUTCHours()) + ":" + pad(g.k.getUTCMinutes()), txt = gs.map(g => g.a + " " + g.h + " " + hm(g)).join("\n");
+    const ge = document.getElementById("qz-g"), te = document.getElementById("qz-t"); if (ge) ge.value = txt; S.gamesDraft = txt; if (te) te.value = hm(gs[0]);
+    if (msg) msg.textContent = dLabel(d) + " " + gs.length + "경기 · 첫 경기 " + hm(gs[0]) + " (한국시간)";
+  } catch (e) { if (msg) msg.textContent = "경기를 못 불러왔어요. 직접 적어주세요 (" + (e.message || e) + ")"; }
+}
 async function getJson(url) { const r = await fetch(url); if (!r.ok) throw new Error("기록 사이트 응답 " + r.status); return r.json(); }
 async function autoFill() {
   const Q = S.quiz; if (!Q) return;
@@ -815,6 +830,7 @@ document.addEventListener("click", ev => {
   if (b.dataset.grade) { grade(b.dataset.grade); return; }
   if (b.id === "qz-open") { openQuiz(); return; }
   if (b.id === "auto-fill") { autoFill(); return; }
+  if (b.id === "qz-load") { loadGames(); return; }
   if (b.id === "fe-save") { const fx = {}; let bad = 0; QUIZ.forEach(q => { const v = document.getElementById("fe-" + q.id).value.trim(); if (!v) return; if (!fmtOk(q, v)) { bad = q.id; return; } fx[q.id] = v; });
     if (bad) { toast(bad + "번 예시가 형식과 달라요: " + qById(bad).rule); return; }
     updateDoc(doc(db, "quizzes", S.quiz.date), { fx }).then(() => toast("예시를 바꿨어요"), e => toast("실패: " + (e.code || e.message))); return; }
@@ -828,7 +844,7 @@ document.addEventListener("click", ev => {
     saveRosters({ [l]: teams }).then(() => toast(l + " 명단 " + teams.length + "팀 저장")); return; }
   if (b.id === "rs-up-save") { b.disabled = true; saveRosters(S.rosterUpload).then(() => { toast(Object.keys(S.rosterUpload).length + "개 리그 명단 저장 완료"); S.rosterUpload = null; render(true); }); return; }
 });
-document.addEventListener("change", ev => { if (ev.target.id === "ans-d") { S.ansDate = ev.target.value; S.ansList = null; render(true); return; } if (ev.target.id === "rs-file" && ev.target.files[0]) { parseRosterFile(ev.target.files[0]); return; } if (ev.target.id === "rk-m") { S.rankMonth = ev.target.value; render(true); return; } if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
+document.addEventListener("change", ev => { if (ev.target.id === "qz-d") { S.gamesDraft = ""; loadGames(); return; } if (ev.target.id === "ans-d") { S.ansDate = ev.target.value; S.ansList = null; render(true); return; } if (ev.target.id === "rs-file" && ev.target.files[0]) { parseRosterFile(ev.target.files[0]); return; } if (ev.target.id === "rk-m") { S.rankMonth = ev.target.value; render(true); return; } if (ev.target.id === "rs-l") { S.rosterSel = ev.target.value; render(true); } });
 document.addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target.dataset && ev.target.dataset.ans) { ev.preventDefault(); const bt = document.querySelector('[data-sub="' + ev.target.dataset.ans + '"]'); if (bt && !bt.disabled) bt.click(); } });
 document.addEventListener("input", ev => {
   const t = ev.target;
@@ -869,6 +885,7 @@ function doRender() {
   const v = { hist: vHist, home: vHome, rank: vRank, chat: vChat, wallet: vWallet, notice: vNotice, join: vJoin, admin: vAdmin }[S.tab] || vHome;
   document.getElementById("view").innerHTML = v() + composer();
   if (S.tab === "admin" && S.admTab === "dash") simCalc();
+  if (S.tab === "admin" && S.admTab === "quiz" && !S.gamesDraft && !S.gamesTried) { S.gamesTried = true; setTimeout(loadGames, 0); }
   if (S.tab === "notice" && window.QRCode) { try { new QRCode(document.getElementById("qrbox"), { text: KAKAO, width: 96, height: 96, colorDark: "#1C1133", colorLight: "#ffffff" }); } catch (e) {} }
   tick();
 }
